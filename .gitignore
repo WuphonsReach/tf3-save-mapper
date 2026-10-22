@@ -1,0 +1,36 @@
+# Rust build output
+target/
+
+# Save files and anything extracted from them stay out of the repo
+*.sav
+*.sav.*
+*.zst
+*.bin
+*.raw
+*.dump
+saves/
+scratch/
+previews/
+
+# Images: the game's .jpg next to each save, extracted previews.
+*.jpg
+*.jpeg
+*.webp
+
+# Rendered maps are pictures of other people's saves. Only our own
+# diagrams under docs/images/ are tracked.
+*.svg
+!docs/images/*.svg
+out/
+output/
+
+# Local-only notes and lists (paths to saves on this machine)
+local/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
