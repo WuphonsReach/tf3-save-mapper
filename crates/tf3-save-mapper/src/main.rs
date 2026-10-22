@@ -1,12 +1,13 @@
 //! Command-line front end for `tf3-save-mapper-core`: arguments in, SVG file out.
 
-use std::fs::File;
-use std::io::BufWriter;
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tf3_save_mapper_core::{
-    Family, SvgOptions, container, read_edges, read_free_ids, read_header, retain_live, write_svg,
+    Edge, Family, Header, SvgOptions, container, read_edges, read_free_ids, read_header,
+    retain_live, write_svg,
 };
 
 const USAGE: &str = "\
@@ -53,7 +54,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
             "--keep-dead" => keep_dead = true,
-            flag if flag.starts_with('-') && flag != "-" => {
+            flag if flag.starts_with('-') => {
                 return Err(format!("unknown option {flag}"));
             }
             _ if save.is_some() => return Err("give one save".into()),
@@ -111,9 +112,7 @@ fn run(args: Args) -> Result<(), String> {
     }
     let tracks = edges.iter().filter(|e| e.family() == Family::Track).count();
 
-    let out = File::create(&args.output).map_err(|e| format!("cannot write the output: {e}"))?;
-    write_svg(&mut BufWriter::new(out), &header, &edges, &args.options)
-        .map_err(|e| format!("cannot write the output: {e}"))?;
+    write_output(&args, &header, &edges)?;
 
     eprintln!(
         "{} road edges, {} track edges ({dropped} deleted ones left out); wrote {}",
@@ -121,6 +120,31 @@ fn run(args: Args) -> Result<(), String> {
         tracks,
         args.output.display()
     );
+    Ok(())
+}
+
+/// Write to a new file beside the output and rename it into place. The rename
+/// replaces the name and never writes through it, so an output that is a hard
+/// link to the save leaves the save's contents alone.
+fn write_output(args: &Args, header: &Header, edges: &[Edge]) -> Result<(), String> {
+    let mut temp = args.output.clone().into_os_string();
+    temp.push(".tmp");
+    let temp = PathBuf::from(temp);
+    let cannot_write = |e: std::io::Error| format!("cannot write the output: {e}");
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(cannot_write)?;
+    let mut out = BufWriter::new(file);
+    let written = write_svg(&mut out, header, edges, &args.options)
+        .and_then(|()| out.flush())
+        .and_then(|()| std::fs::rename(&temp, &args.output));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&temp);
+        return Err(cannot_write(e));
+    }
     Ok(())
 }
 
@@ -198,5 +222,42 @@ mod tests {
     fn help_and_version_exit_early() {
         assert!(matches!(parse(&["--help"]), Ok(Parsed::Exit(t)) if t.contains("Usage")));
         assert!(matches!(parse(&["-V"]), Ok(Parsed::Exit(t)) if t.starts_with("tf3map ")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_output_that_is_a_hard_link_to_the_save_leaves_the_save_alone() {
+        let dir = std::env::temp_dir().join(format!("tf3map-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let save = dir.join("save-stand-in");
+        let linked = dir.join("linked.svg");
+        std::fs::write(&save, b"pretend save contents").unwrap();
+        std::fs::hard_link(&save, &linked).unwrap();
+
+        let args = Args {
+            save: save.clone(),
+            output: linked.clone(),
+            options: SvgOptions::default(),
+            keep_dead: false,
+        };
+        let header = Header {
+            version: 604,
+            start_year: 1900,
+            map_width: 100,
+            map_height: 100,
+            date: 0,
+            climate: None,
+            map_seed: None,
+        };
+        write_output(&args, &header, &[]).unwrap();
+
+        assert_eq!(std::fs::read(&save).unwrap(), b"pretend save contents");
+        assert!(
+            std::fs::read_to_string(&linked)
+                .unwrap()
+                .starts_with("<svg")
+        );
+        assert!(!dir.join("linked.svg.tmp").exists(), "no temp file is left");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

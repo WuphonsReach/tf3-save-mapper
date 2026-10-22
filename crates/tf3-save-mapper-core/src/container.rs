@@ -12,6 +12,10 @@ use crate::error::{Error, Result};
 /// gigabyte.
 pub const MAX_STREAM_BYTES: u64 = 4 << 30;
 
+/// The frame header's size is not trusted for more than this much up-front
+/// allocation; a larger stream makes the buffer grow as it is read.
+const PREALLOCATE_LIMIT: u64 = 1 << 30;
+
 /// Decompress a save from `source`. The frame header's content size, when
 /// present, sizes the buffer.
 pub fn decompress(mut source: impl Read) -> Result<Vec<u8>> {
@@ -21,7 +25,8 @@ pub fn decompress(mut source: impl Read) -> Result<Vec<u8>> {
     let hint = zstd::zstd_safe::get_frame_content_size(&head[..got])
         .ok()
         .flatten()
-        .filter(|&n| n <= MAX_STREAM_BYTES);
+        .filter(|&n| n <= MAX_STREAM_BYTES)
+        .map(|n| n.min(PREALLOCATE_LIMIT));
 
     let chained = (&head[..got]).chain(source);
     let mut decoder = zstd::stream::read::Decoder::new(chained)?;

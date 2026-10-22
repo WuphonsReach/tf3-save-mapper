@@ -152,8 +152,8 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
 }
 
 /// Checks that keep a stray match out: sensible ids, positions on the map,
-/// a length between 1 m and a few km, and a first tangent about as long as
-/// the edge (the tangents of a straight edge are its difference vector).
+/// a length between 1 m and a few km, and tangents about as long as the edge
+/// (the tangents of a straight edge are its difference vector), at most five times.
 fn plausible(a: u32, b: u32, p0: [f32; 3], p1: [f32; 3], t0: [f32; 3], t1: [f32; 3]) -> bool {
     if !(0 < a && a < MAX_ID && 0 < b && b < MAX_ID) || a == b {
         return false;
@@ -177,7 +177,9 @@ fn plausible(a: u32, b: u32, p0: [f32; 3], p1: [f32; 3], t0: [f32; 3], t1: [f32;
     if !t0.iter().chain(&t1).all(|c| c.is_finite()) {
         return false;
     }
-    hypot(f64::from(t0[0]), f64::from(t0[1])) < 5.0 * length
+    [t0, t1]
+        .iter()
+        .all(|t| hypot(f64::from(t[0]), f64::from(t[1])) < 5.0 * length)
 }
 
 /// The template string in `window`: a `str` (u32 length, then bytes) reading
