@@ -12,6 +12,9 @@ publish = false
 
 [workspace.dependencies]
 tf3-save-mapper-core = { path = "crates/tf3-save-mapper-core" }
+memchr = "2.8"
+# No legacy-format or dictionary support: a save is one plain zstd stream.
+zstd = { version = "0.14", default-features = false }
 
 [profile.release]
 lto = "thin"
