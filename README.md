@@ -16,7 +16,13 @@ Drawing choices: labels are left out rather than moved, one outline width, no in
 
 ## Building
 
-Needs a current stable Rust toolchain. There is no code yet, so there is nothing to build.
+Needs Rust 1.99 or newer.
+
+```
+cargo build --release
+```
+
+The binary is `target/release/tf3map`. It builds today but draws nothing yet.
 
 ## How it relates to other projects
 
@@ -33,4 +39,4 @@ Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at 
 
 ## Status
 
-Early. The repository holds the licence, ignore rules and project notes only; the Cargo workspace, CI and the first roads-only slice come next.
+Early. The Cargo workspace is in place (`tf3-save-mapper-core` and the `tf3map` binary) with no map code yet. CI and the first roads-only slice come next.

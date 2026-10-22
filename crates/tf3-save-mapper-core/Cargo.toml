@@ -1,0 +1,11 @@
+[package]
+name = "tf3-save-mapper-core"
+description = "Reads a Transport Fever 3 save and draws it as an SVG map. Unofficial."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]

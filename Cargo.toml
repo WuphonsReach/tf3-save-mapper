@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/tf3-save-mapper-core", "crates/tf3-save-mapper"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WuphonsReach/tf3-save-mapper"
+publish = false
+
+[workspace.dependencies]
+tf3-save-mapper-core = { path = "crates/tf3-save-mapper-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

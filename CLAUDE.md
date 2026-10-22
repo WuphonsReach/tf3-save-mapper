@@ -1,6 +1,6 @@
 # tf3-save-mapper
 
-Read-only command-line tool that draws an SVG map of a Transport Fever 3 `.sav`. Unofficial fan tool, licensed MIT OR Apache-2.0. Rust, as a Cargo workspace: `tf3-save-mapper-core` (container, header, edges, instances, terrain, SVG writer; no CLI code) and the binary crate (arguments, file output). The binary name is not chosen yet.
+Read-only command-line tool that draws an SVG map of a Transport Fever 3 `.sav`. Unofficial fan tool, licensed MIT OR Apache-2.0. Rust, as a Cargo workspace: `tf3-save-mapper-core` (container, header, edges, instances, terrain, SVG writer; no CLI code) and the binary crate (arguments, file output). The binary is `tf3map`, built from the `tf3-save-mapper` crate in `crates/tf3-save-mapper`; the core is `crates/tf3-save-mapper-core`. Both are `publish = false` until the user decides on crates.io.
 
 Positioning: use a `tf3-` name; write "Transport Fever 3" only in the description and topics. The README carries an "unofficial, not affiliated with Urban Games" line.
 
