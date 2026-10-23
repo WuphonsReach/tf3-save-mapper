@@ -68,6 +68,13 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+      - name: Install the musl C compiler
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          # The bundled zstd library is C, and has to be built against musl too.
+          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
       - name: Build
         run: cargo build --release --locked -p tf3-save-mapper --target ${{ matrix.target }}
       - name: Check the Linux build is static
@@ -84,7 +91,7 @@ jobs:
           mkdir -p "dist/$name"
           ext=""; [[ "$RUNNER_OS" == Windows ]] && ext=".exe"
           cp "target/${{ matrix.target }}/release/tf3map${ext}" "dist/$name/"
-          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
+          cp README.md LICENSE-MIT LICENSE-APACHE THIRD_PARTY_NOTICES.md "dist/$name/"
           cd dist
           if [[ "${{ matrix.archive }}" == zip ]]; then
             7z a -tzip "$name.zip" "$name" > /dev/null

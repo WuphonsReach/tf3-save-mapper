@@ -22,6 +22,13 @@ Positioning: use a `tf3-` name; write "Transport Fever 3" only in the descriptio
 - Offsets move between saves: find structures by pattern, never by fixed offset.
 - Write the reader from the format notes in our own words. Never copy text or code from tf3-save-editor's `FORMAT.md`; credit it if used.
 
+## Testing
+
+- Committed tests use a hand-built stream (`crates/tf3-save-mapper-core/tests/common/mod.rs`): header, edge table, decoy, free-id list. Keep its floats varied: with all-equal heights a misaligned read can pass the plausibility checks and make the table's first record ambiguous.
+- `tests/golden.rs` runs on a real save when `TF3_MAPPER_TEST_SAVE` is set (and checks the edge count against `TF3_MAPPER_TEST_EDGES` if set) and does nothing otherwise. Never write that path into a committed file.
+- To check a port against the Python prototype, compare per-edge: positions within 0.2 m and the curved/straight choice, after the free-id filter. Counts alone hide mismatches.
+- Data quirks seen in real saves, not bugs: a few nodes (up to about 1.5 %) have two positions because leftover records reuse ids, and airport runways can reach past the map edge.
+
 ## Game install
 
 - Never read, `strings`, dump or grep the game's native binaries: the `TransportFever3` executable, the bundled `.so` libraries, `model_editor/ModelEditor`.

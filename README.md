@@ -6,23 +6,32 @@ The tool reads a `.sav` file and writes a vector map you can open in a browser o
 
 ## What the map shows
 
-Planned, in this order:
+Today: roads and rails, drawn from the street edges in the save, on a plain background, as layers (`roads`, `rails`, one sublayer per street or track type) that Inkscape and similar editors show as layers. Curves follow the stored bends. The picture is the whole map, north up and east right, in map metres.
 
-1. Roads, from the street edges in the save.
-2. Rails, stations and towns.
-3. Terrain as vector contours.
+Planned: stations, towns and terrain as vector contours.
 
 Drawing choices: labels are left out rather than moved, one outline width, no inner lines, plain dark anchors. The compass follows the game's own axes (x east, y north).
 
+## Using it
+
+```
+tf3map SAVE.sav                  # writes SAVE.svg in the current folder
+tf3map SAVE.sav -o map.svg
+```
+
+Options: `--road-width M` and `--rail-width M` (metres, default 16 and 4), `--keep-dead` to also draw roads the game deleted but left in the save. `tf3map --help` lists them. A save is read, never written, and the output may not be a `.sav`.
+
+A 280 MB save takes about a second and 1.1 GB of memory, because the whole decompressed stream is held.
+
 ## Building
 
-Needs Rust 1.99 or newer.
+Needs Rust 1.99 or newer and a C compiler (for the bundled zstd library).
 
 ```
 cargo build --release
 ```
 
-The binary is `target/release/tf3map`. It builds today but draws nothing yet.
+The binary is `target/release/tf3map`.
 
 ## How it relates to other projects
 
@@ -39,4 +48,4 @@ Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at 
 
 ## Status
 
-Early. The Cargo workspace is in place (`tf3-save-mapper-core` and the `tf3map` binary) with no map code yet. CI and the first roads-only slice come next.
+Early. Roads and rails work, and match the Python prototype in tf3-save-format edge for edge on the saves compared. Header fields beyond the map size are read only on formats 599 to 604.
