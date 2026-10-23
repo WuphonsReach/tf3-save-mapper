@@ -23,6 +23,16 @@ Options: `--road-width M` and `--rail-width M` (metres, default 16 and 4), `--ke
 
 A 280 MB save takes about a second and 1.1 GB of memory, because the whole decompressed stream is held.
 
+## Download
+
+Archives for Windows (x86_64), macOS (Apple silicon and Intel) and Linux (x86_64, static) are on the [Releases page](https://github.com/WuphonsReach/tf3-save-mapper/releases). Each archive has the binary, the README and the licences, and carries a build provenance attestation:
+
+```
+gh attestation verify ARCHIVE --repo WuphonsReach/tf3-save-mapper
+```
+
+The binaries are not code-signed, so Windows and macOS may warn on first run.
+
 ## Building
 
 Needs Rust 1.99 or newer and a C compiler (for the bundled zstd library).
