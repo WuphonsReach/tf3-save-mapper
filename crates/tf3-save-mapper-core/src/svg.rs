@@ -56,7 +56,7 @@ pub fn write_svg(
     // Edges grouped by family and type, in stream order within each.
     let mut groups: BTreeMap<(u8, &str), Vec<&Edge>> = BTreeMap::new();
     for e in edges {
-        let family = u8::from(e.family() == Family::Track);
+        let family = u8::from(e.family == Family::Track);
         groups.entry((family, e.type_name())).or_default().push(e);
     }
 
@@ -198,6 +198,11 @@ mod tests {
             t0: d,
             t1: d,
             template: Some(template.into()),
+            family: if template.starts_with("track/") {
+                Family::Track
+            } else {
+                Family::Street
+            },
             offset: 0,
         }
     }

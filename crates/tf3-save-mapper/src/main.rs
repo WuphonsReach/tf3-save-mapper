@@ -110,7 +110,7 @@ fn run(args: Args) -> Result<(), String> {
             None => eprintln!("free-id list not found: every edge is drawn"),
         }
     }
-    let tracks = edges.iter().filter(|e| e.family() == Family::Track).count();
+    let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
 
     write_output(&args, &header, &edges)?;
 
