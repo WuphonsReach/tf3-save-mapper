@@ -79,14 +79,14 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "tf3-save-mapper"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "tf3-save-mapper-core",
 ]
 
 [[package]]
 name = "tf3-save-mapper-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "memchr",
  "zstd",
