@@ -11,7 +11,7 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Terrain**: height bands every 20 m in a plain colour ramp, the water (lakes, sea and rivers), and height lines with every fifth one heavier. All vector shapes, cut from the save's heightmap. With `--raster`, one shaded picture instead (below).
 - **Roads and rails** from the street edges in the save, one sublayer per street or track type. Each is as wide as its lanes, sidewalks included (a small town street 16 m, a track 4 m), and curves follow the stored bends.
 - **Stations**: the docks, platforms and buildings of water, rail and street stations, with a border round each bus, tram or cargo station and an anchor on each ship landing.
-- **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier.
+- **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier, and, when asked for, the area each one maintains.
 - **Industries**: each industry's footprint, and a badge with its icon.
 - **Vehicles**, when asked for: one shape per vehicle, pointing where it faces.
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
@@ -34,6 +34,7 @@ Options (`tf3map --help` lists them all):
 - `--crop X,Y,R` draws only the square of half-width R metres round the map point X,Y (x east, y north, 0,0 the map's centre), at 4 m per pixel instead of 8. The picture keeps the whole map's frame, so its `viewBox` starts at the crop's corner. `--zoom N` makes the picture N times larger on screen.
 - `--mpp M` sets the metres per pixel: a multiple of 4 (the heightmap's spacing), or 1 or 2 on a crop. The default is 8 for the whole map and 4 on a crop. A coarser picture cuts the terrain from every (M / 4)th point of the heightmap; a finer one only scales the picture, since the heightmap has no more detail. Line widths and label sizes that are set in pixels follow it.
 - `--game DIR`: the game's install folder, the one holding `base/`. By default the usual Steam folders and their library folders are tried.
+- `--mods DIR`: the mod.io game's mods folder, the one holding a folder per mod, read for a mod's depots (so far the Boathouse mod's boathouse). By default the mods folders beside the usual Steam folders are tried (for the snap, `~/snap/steam/common/mod.io/common/10640/mods`), then `~/.local/share/mod.io/common/10640/mods`. Without one a boathouse is still drawn, as a dot, but with no catchment and no coverage circle.
 - `--contour M` sets the metres between height lines and bands (default 20); `--no-bands` leaves the colour bands out.
 - `--raster` draws the terrain as one picture embedded in the SVG (a PNG in a data URI): the same height colours with hill shading lit from the north-west, and the water from light to dark blue with depth. Everything else is drawn on top as before. It is 4 m per pixel unless `--mpp` says otherwise, and the file is megabytes where the vector terrain's is hundreds of kilobytes.
 - `--png` writes one flat PNG instead of the SVG: the `--raster` terrain with the roads and rails drawn into its pixels, each as wide as its lanes and at least one pixel, and nothing else (no stations, depots, industries, vehicles, labels, grid or rose; the options for those are refused). A `tf3map:view` text chunk holds a JSON record of where the picture lies: the map size, the metres per pixel, which way north is, the map box it shows (`x-min`, `x-max`, `y-min`, `y-max`) and the crop.
@@ -43,6 +44,7 @@ Options (`tf3map --help` lists them all):
 - `--min-width M` draws no road or track narrower than M metres, so tracks stay visible on a whole-map view.
 - `--road-width M` and `--rail-width M` set the width of an edge whose lanes cannot be read (default 16 and 4).
 - `--keep-dead` also draws roads the game deleted but left in the save.
+- `--coverage` draws the area each depot and maintenance building covers: a dashed circle at the catchment radius of its script, round its origin, under the roads, one sublayer per kind. A ship depot's ring in the game is sometimes tens of metres off its origin; this draws it on the origin.
 - `--vehicles` draws the vehicles, coloured by kind. `--name SLOT=TEXT` writes TEXT beside the vehicle whose `data-slot` is SLOT (repeatable); a default name such as `Road Vehicle 279` is shortened to `RV279`.
 - `--label A>B[=TEXT]` writes TEXT (or `A>B`) along the edge between the nodes with hex ids A and B, in either order, and marks its ends (repeatable); `--edge-ids` adds the edge's own entity id where the save's strip table gives it. A label is never moved; one whose edge is not in the picture is reported.
 - `--grid N` puts marks every N metres, the 1000 m ones major; by default there are major marks only, about a third of the shorter side apart (1000 m at least on a whole map). `--no-grid` leaves the grid out, `--grid-lines auto|none|dots|faint` chooses which lines are drawn besides the crosses and `--grid-dot-step M` spaces the dots.
@@ -51,7 +53,7 @@ A save is read, never written, and the output may not be a `.sav`. A 390 MB save
 
 ### The game install
 
-To draw stations, depots and industry footprints, the tool reads a few text files from the game's `base/content` archives at run time: the station model files, the depot scripts and the industry scripts. It takes only the sizes and outlines it needs, keeps nothing, and ships none of the game's files. It never opens the game's program files.
+To draw stations, depots and industry footprints, the tool reads a few text files from the game's `base/content` archives at run time: the station model files, the depot scripts and the industry scripts. It takes only the sizes and outlines it needs, keeps nothing, and ships none of the game's files. It never opens the game's program files. In the same way it reads a mod's depot script from the mods folder, for its catchment radius, pool and transport modes, and nothing else there.
 
 ## Download
 

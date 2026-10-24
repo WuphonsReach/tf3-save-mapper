@@ -3,14 +3,16 @@
 //! facing, opaque (so it hides the ends of the road lanes under it) with the
 //! stations' black outline and no marks inside. A ship depot that reaches
 //! into the water is the outline of its face and collider boxes together. A
-//! kind with no face (the Boathouse mod's) is a dot on its origin. Only the
-//! exact model of each kind is drawn, so a depot's `_sm` twin is not.
+//! kind with no face (the Boathouse mod's, whose script is read from the
+//! mods folder when it is found, and which is drawn without it when not) is
+//! a dot on its origin. Only the exact model of each kind is drawn, so a
+//! depot's `_sm` twin is not.
 
 use std::collections::HashMap;
 
 use super::{OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr};
 use crate::geometry::{bounds, closed_outline};
-use crate::install::{DEPOT_KINDS, DepotSpec};
+use crate::install::{DEPOT_KINDS, DepotKind, DepotSpec};
 use crate::instances::Instance;
 
 /// Metres from a building's origin within which it may show.
@@ -35,23 +37,12 @@ pub(super) fn layers(
         }
         out.push(layer(kind.id, kind.label, " pointer-events=\"none\""));
         for i in rows {
-            let mut attrs = format!(
-                "id=\"depot-{}\" class=\"depot {}\" data-slot=\"{}\" data-model=\"{}\" data-x=\"{}\" data-y=\"{}\"",
+            out.push(format!(
+                "<g id=\"depot-{}\" class=\"depot {}\"{}>",
                 i.slot,
                 kind.id,
-                i.slot,
-                escape(kind.model),
-                fmt1(i.x),
-                fmt1(i.y)
-            );
-            if let Some(s) = spec {
-                attrs += &format!(" data-pool=\"{}\"", s.pool);
-                if let Some(r) = s.radius {
-                    attrs += &format!(" data-radius=\"{r}\"");
-                }
-                attrs += &format!(" data-modes=\"{}\"", escape(&s.modes));
-            }
-            out.push(format!("<g {attrs}>"));
+                data_attrs(kind, i, spec)
+            ));
             let local = |a: f64, b: f64| picture.pic(i.place(a, b));
             let fill = kind.fill;
             match spec {
@@ -67,14 +58,14 @@ pub(super) fn layers(
                         loops_d(&closed_outline(&parts, 0.05))
                     ));
                 }
-                Some(s) => {
+                Some(s) if !s.face.is_empty() => {
                     let pts: Vec<(f64, f64)> = s.face.iter().map(|&(a, b)| local(a, b)).collect();
                     out.push(format!(
                         "<polygon points=\"{}\" fill=\"{fill}\" stroke=\"#000\" stroke-width=\"{OUTLINE}\" stroke-linejoin=\"round\"/>",
                         points_attr(&pts)
                     ));
                 }
-                None => {
+                _ => {
                     let (cx, cy) = local(0.0, 0.0);
                     out.push(format!(
                         "<circle cx=\"{}\" cy=\"{}\" r=\"{DOT}\" fill=\"{fill}\" stroke=\"#000\" stroke-width=\"{OUTLINE}\"/>",
@@ -88,6 +79,26 @@ pub(super) fn layers(
         out.push("</g>".into());
     }
     out
+}
+
+/// ` data-slot data-model data-x data-y`, and with the script's spec
+/// ` data-pool data-radius data-modes` (the radius only if it read).
+pub(super) fn data_attrs(kind: &DepotKind, i: &Instance, spec: Option<&DepotSpec>) -> String {
+    let mut attrs = format!(
+        " data-slot=\"{}\" data-model=\"{}\" data-x=\"{}\" data-y=\"{}\"",
+        i.slot,
+        escape(kind.model),
+        fmt1(i.x),
+        fmt1(i.y)
+    );
+    if let Some(s) = spec {
+        attrs += &format!(" data-pool=\"{}\"", s.pool);
+        if let Some(r) = s.radius {
+            attrs += &format!(" data-radius=\"{r}\"");
+        }
+        attrs += &format!(" data-modes=\"{}\"", escape(&s.modes));
+    }
+    attrs
 }
 
 #[cfg(test)]

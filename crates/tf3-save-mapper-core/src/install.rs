@@ -1,12 +1,14 @@
 //! Facts read from the player's own game install at run time: the ground
-//! faces of depots and industries and the boxes of station pieces. Nothing
-//! read here is stored in the tool or written into the picture beyond the
-//! shapes drawn from it.
+//! faces of depots and industries and the boxes of station pieces, and from
+//! the mods folder the scripts of a mod's depots. Nothing read here is
+//! stored in the tool or written into the picture beyond the shapes drawn
+//! from it.
 //!
 //! The files are in the `base/content` archives: depot scripts in
 //! `depots/*.zip`, station model files in `stations/*.zip`, industry scripts
 //! in `industries/<key>.zip`. Their tables are generated Lua, so the few
-//! fields needed are picked out by name.
+//! fields needed are picked out by name. A mod's script is a plain file in
+//! its folder under the mod.io game's `mods` folder, one folder per mod.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,6 +26,15 @@ const HOME_STEAM: &[&str] = &[
 ];
 /// Steam folders tried on Windows.
 const WINDOWS_STEAM: &[&str] = &["C:\\Program Files (x86)\\Steam", "C:\\Program Files\\Steam"];
+/// The mod.io game's mods folder, under the folder Steam keeps its data in
+/// (the home folder, or the snap's or Flatpak's own) or under its
+/// `.local/share`.
+const MODS_FOLDERS: &[&str] = &[
+    "mod.io/common/10640/mods",
+    ".local/share/mod.io/common/10640/mods",
+];
+/// The end of a Steam folder under the folder Steam keeps its data in.
+const STEAM_DATA: &str = ".local/share/Steam";
 const GAME_FOLDER: &str = "Transport Fever 3";
 
 /// A rectangle in a model's own axes: (a0, b0, a1, b1), a along its x axis.
@@ -60,6 +71,74 @@ impl Install {
     }
 }
 
+/// The mod.io game's `mods` folders, one subfolder per mod: the folder
+/// given, or those found next to the usual Steam folders. Nothing is written
+/// there.
+#[derive(Debug, Clone)]
+pub struct Mods {
+    pub dirs: Vec<PathBuf>,
+}
+
+impl Mods {
+    /// `dir` if it is a folder; without one, every mods folder found beside
+    /// the usual Steam folders (`~/snap/steam/common/mod.io/...` for the
+    /// snap) and in the home folder's `.local/share`.
+    pub fn find(dir: Option<&Path>) -> Option<Mods> {
+        let dirs = match dir {
+            Some(dir) if dir.is_dir() => vec![dir.to_owned()],
+            Some(_) => Vec::new(),
+            None => std::env::home_dir().map_or_else(Vec::new, |home| mods_folders(&home)),
+        };
+        (!dirs.is_empty()).then_some(Mods { dirs })
+    }
+
+    /// The text of the file at `rel` in the first mod folder that has it:
+    /// the mods folders in turn, and each one's mod folders by name.
+    fn script(&self, rel: &str) -> Option<String> {
+        self.dirs.iter().find_map(|dir| {
+            let mut mods: Vec<String> = std::fs::read_dir(dir)
+                .ok()?
+                .filter_map(|e| e.ok()?.file_name().into_string().ok())
+                .collect();
+            mods.sort();
+            mods.iter().find_map(|m| {
+                let bytes = std::fs::read(dir.join(m).join(rel)).ok()?;
+                Some(String::from_utf8_lossy(&bytes).into_owned())
+            })
+        })
+    }
+}
+
+/// The mods folders that exist beside the Steam folders found under `home`,
+/// then in `home` itself, each once.
+fn mods_folders(home: &Path) -> Vec<PathBuf> {
+    let mut bases: Vec<PathBuf> = Vec::new();
+    for root in HOME_STEAM.iter().map(|d| home.join(d)) {
+        // `.steam/steam` is a link to the real folder.
+        let Ok(root) = root.canonicalize() else {
+            continue;
+        };
+        if root.ends_with(STEAM_DATA) {
+            let mut base = root.as_path();
+            for _ in Path::new(STEAM_DATA).components() {
+                base = base.parent().unwrap_or(base);
+            }
+            bases.push(base.to_owned());
+        }
+    }
+    bases.push(home.to_owned());
+    let mut out: Vec<PathBuf> = Vec::new();
+    for base in bases {
+        for rel in MODS_FOLDERS {
+            let dir = base.join(rel);
+            if dir.is_dir() && !out.contains(&dir) {
+                out.push(dir);
+            }
+        }
+    }
+    out
+}
+
 fn steam_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Some(home) = std::env::home_dir() {
@@ -89,7 +168,8 @@ fn library_folders(root: &Path) -> Vec<PathBuf> {
 
 /// A maintenance building or depot kind: its layer, its script in the
 /// install, the model whose instances are drawn and its fill. A kind with no
-/// archive is a mod's: its script is not read and a dot stands for it.
+/// archive is a mod's: its script is the file at `script` in the mod's
+/// folder, and a dot stands for a building whose script has no ground face.
 pub struct DepotKind {
     pub id: &'static str,
     pub label: &'static str,
@@ -163,7 +243,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         id: "boathouses",
         label: "Boathouses (Boathouse mod)",
         archive: None,
-        script: "",
+        script: "content/assets/ingo_bootsschuppen/ingo_bootsschuppen_maint.script.lua",
         model: "assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl",
         fill: "#7b4a24",
     },
@@ -172,7 +252,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
 /// What a depot's script says about its footprint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DepotSpec {
-    /// The first ground face, in the building's own axes.
+    /// The first ground face, in the building's own axes; empty for a mod's
+    /// building whose script has none.
     pub face: Polygon,
     /// The collider boxes that reach past the face (a ship depot's quay and
     /// water part), each (a0, a1, b0, b1).
@@ -183,33 +264,58 @@ pub struct DepotSpec {
     pub modes: String,
 }
 
-/// The spec of each depot kind whose script reads, by layer id.
-pub fn depot_specs(install: &Install) -> HashMap<&'static str, DepotSpec> {
+/// The spec of each depot kind whose script reads, by layer id: the game's
+/// kinds from the install, a mod's from the mods folder.
+pub fn depot_specs(
+    install: Option<&Install>,
+    mods: Option<&Mods>,
+) -> HashMap<&'static str, DepotSpec> {
     let mut archives: HashMap<&str, Option<Archive>> = HashMap::new();
     let mut out = HashMap::new();
     for kind in DEPOT_KINDS {
-        let Some(name) = kind.archive else { continue };
-        let archive = archives
-            .entry(name)
-            .or_insert_with(|| install.archive("depots", name));
-        let Some(text) = archive.as_mut().and_then(|a| a.read_text(kind.script)) else {
-            continue;
+        let spec = match kind.archive {
+            Some(name) => {
+                let Some(install) = install else { continue };
+                archives
+                    .entry(name)
+                    .or_insert_with(|| install.archive("depots", name))
+                    .as_mut()
+                    .and_then(|a| a.read_text(kind.script))
+                    .and_then(|text| parse_depot(&text))
+            }
+            None => mods
+                .and_then(|m| m.script(kind.script))
+                .and_then(|text| parse_mod_depot(&text)),
         };
-        if let Some(spec) = parse_depot(&text) {
+        if let Some(spec) = spec {
             out.insert(kind.id, spec);
         }
     }
     out
 }
 
+/// A game depot's script: it needs a ground face.
 fn parse_depot(text: &str) -> Option<DepotSpec> {
     let face = ground_face(text)?;
+    Some(depot_spec(text, face))
+}
+
+/// A mod's depot script: it needs a catchment radius and may have no
+/// ground face.
+fn parse_mod_depot(text: &str) -> Option<DepotSpec> {
+    catchment_radius(text)?;
+    Some(depot_spec(text, ground_face(text).unwrap_or_default()))
+}
+
+fn depot_spec(text: &str, face: Polygon) -> DepotSpec {
     let radius = catchment_radius(text);
     let pool = number_after(text, "maintenancePool").unwrap_or(0.0) as u32;
     let modes = transport_modes(text).unwrap_or_default();
-    let (fa0, fa1, fb0, fb1) = geometry::bounds(&face);
     let mut boxes = Vec::new();
-    if let Some(Tree::List(colliders)) = table_after(text, "[\"collider\"]") {
+    if !face.is_empty()
+        && let Some(Tree::List(colliders)) = table_after(text, "[\"collider\"]")
+    {
+        let (fa0, fa1, fb0, fb1) = geometry::bounds(&face);
         for c in colliders {
             let pts = points(&c);
             if pts.len() != 8 {
@@ -221,13 +327,13 @@ fn parse_depot(text: &str) -> Option<DepotSpec> {
             }
         }
     }
-    Some(DepotSpec {
+    DepotSpec {
         face,
         boxes,
         radius,
         pool,
         modes,
-    })
+    }
 }
 
 /// A station piece group: its layer, the models drawn in it (paths under
@@ -633,6 +739,72 @@ mod tests {
         assert_eq!((spec.radius, spec.pool), (Some(400), 12));
         assert_eq!(spec.modes, "BUS,TRUCK");
         assert_eq!(parse_depot("no fields here"), None);
+    }
+
+    /// A boathouse script in a mod's own hand-written style: a radius, a
+    /// pool and two modes, and no ground face.
+    const MOD_DEPOT: &str = r#"
+    local depot = {
+        transportModes = { "SHIP", "SMALL_SHIP", },
+        catchmentArea = {
+            radius = 600,
+            position = { 0, 0, 0, },
+        },
+        maintenancePool = 2,
+    }
+    "#;
+
+    /// A new empty folder under the system's temporary folder.
+    fn temp_folder(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("tf3map-install-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn a_mods_depot_reads_from_the_mods_folder() {
+        let mods = temp_folder("mods");
+        let boathouse = DEPOT_KINDS.iter().find(|k| k.archive.is_none()).unwrap();
+        // A mod folder without the script, one with it, and one later by name.
+        std::fs::create_dir_all(mods.join("1000")).unwrap();
+        write(&mods.join("2000").join(boathouse.script), MOD_DEPOT);
+        write(
+            &mods.join("3000").join(boathouse.script),
+            &MOD_DEPOT.replace("600", "900"),
+        );
+        let found = Mods::find(Some(&mods)).unwrap();
+        let specs = depot_specs(None, Some(&found));
+        assert_eq!(specs.len(), 1, "no install: only the mod's kind");
+        let spec = &specs[boathouse.id];
+        assert!(spec.face.is_empty() && spec.boxes.is_empty());
+        assert_eq!((spec.radius, spec.pool), (Some(600), 2));
+        assert_eq!(spec.modes, "SHIP,SMALL_SHIP");
+        // Without the folder, or with no radius, there is no spec.
+        assert!(depot_specs(None, None).is_empty());
+        assert_eq!(parse_mod_depot("maintenancePool = 2"), None);
+        assert!(Mods::find(Some(&mods.join("absent"))).is_none());
+        std::fs::remove_dir_all(&mods).unwrap();
+    }
+
+    #[test]
+    fn the_mods_folder_sits_beside_the_steam_folder() {
+        let home = temp_folder("home").canonicalize().unwrap();
+        assert!(mods_folders(&home).is_empty());
+        // The snap's Steam keeps its data under its own folder, and mod.io's next to it.
+        std::fs::create_dir_all(home.join(HOME_STEAM[2])).unwrap();
+        let snap = home.join("snap/steam/common").join(MODS_FOLDERS[0]);
+        std::fs::create_dir_all(&snap).unwrap();
+        let local = home.join(MODS_FOLDERS[1]);
+        std::fs::create_dir_all(&local).unwrap();
+        assert_eq!(mods_folders(&home), [snap, local]);
+        std::fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]

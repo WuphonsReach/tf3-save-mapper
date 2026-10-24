@@ -12,7 +12,7 @@ use tf3_save_mapper_core::svg::{
     shown_edges, unmatched_labels,
 };
 use tf3_save_mapper_core::{
-    Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, edge_ids,
+    Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
     industry_models, read_edges, read_free_ids, read_header, read_instances, read_model_table,
     read_strips, read_terrain, retain_live, write_png, write_svg,
 };
@@ -37,11 +37,15 @@ Options:
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
+      --mods DIR      the mod.io game's mods folder (the one holding a folder per mod), read for the
+                      catchment of a mod's depots (default: the usual places beside the Steam folders)
       --contour M     metres between height lines and height bands (default 20; vector terrain)
       --no-bands      leave out the coloured height bands (vector terrain)
       --no-terrain    leave out the terrain
       --no-industries leave out the industries
       --no-depots     leave out the depots and maintenance buildings
+      --coverage      draw each depot's and maintenance building's coverage: a dashed circle at its
+                      catchment radius, round its origin, under the roads (needs the install)
       --no-stations   leave out the stations
       --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
                       upper-right, off, or X,Y (map metres) for its centre
@@ -105,9 +109,11 @@ struct Args {
     /// Write a flat PNG, not an SVG.
     png: bool,
     game: Option<PathBuf>,
+    mods: Option<PathBuf>,
     terrain: bool,
     industries: bool,
     depots: bool,
+    coverage: bool,
     stations: bool,
     vehicles: bool,
     names: HashMap<usize, String>,
@@ -125,8 +131,9 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut output = None;
     let mut options = SvgOptions::default();
     let mut keep_dead = false;
-    let mut game = None;
+    let (mut game, mut mods) = (None, None);
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
+    let mut coverage = false;
     let (mut grid, mut no_grid) = (None, false);
     let mut mpp = None;
     let (mut vector_only, mut svg_only) = (Vec::new(), Vec::new());
@@ -158,12 +165,14 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--min-width" => options.min_width = metres(&value("--min-width")?, 0.0)?,
             "--contour" => options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?,
             "--game" => game = Some(PathBuf::from(value("--game")?)),
+            "--mods" => mods = Some(PathBuf::from(value("--mods")?)),
             "--no-bands" => options.bands = false,
             "--raster" => options.raster = true,
             "--png" => png = true,
             "--no-terrain" => terrain = false,
             "--no-industries" => industries = false,
             "--no-depots" => depots = false,
+            "--coverage" => coverage = true,
             "--no-stations" => stations = false,
             "--no-rose" => options.rose = None,
             "--rose" => options.rose = rose(&value("--rose")?)?,
@@ -243,9 +252,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         keep_dead,
         png,
         game,
+        mods,
         terrain,
         industries,
         depots,
+        coverage,
         stations,
         vehicles,
         names,
@@ -406,6 +417,11 @@ fn run(args: Args) -> Result<(), String> {
     if names_a_save(&args.output) || same_file {
         return Err("the output must not be a .sav file".into());
     }
+    if let Some(dir) = &args.mods
+        && !dir.is_dir()
+    {
+        return Err(format!("no mods folder at {}", dir.display()));
+    }
 
     let o = &args.options;
     let fewest = 10.0 * o.metres_per_pixel;
@@ -458,14 +474,16 @@ fn run(args: Args) -> Result<(), String> {
     }
     write_output(&args, &header, &edges, &layers)?;
 
-    let vehicles = if args.vehicles {
-        format!(", {} vehicles", layers.vehicles.len())
-    } else {
-        String::new()
-    };
+    let mut extra = String::new();
+    if args.coverage {
+        extra += &format!(", {} coverage circles", layers.coverage.len());
+    }
+    if args.vehicles {
+        extra += &format!(", {} vehicles", layers.vehicles.len());
+    }
     eprintln!(
         "{} road edges, {} track edges ({dropped} deleted ones left out), {} industries, \
-         {} depots, {} station pieces{vehicles}; wrote {}",
+         {} depots, {} station pieces{extra}; wrote {}",
         edges.len() - tracks,
         tracks,
         layers.industries.len(),
@@ -487,10 +505,11 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
             Err(e) => eprintln!("{e}: the map is drawn without terrain"),
         }
     }
-    if !(args.industries || args.depots || args.stations || args.vehicles) {
+    let depots = args.depots || args.coverage;
+    if !(args.industries || depots || args.stations || args.vehicles) {
         return Ok(layers);
     }
-    let wants_install = args.industries || args.depots || args.stations;
+    let wants_install = args.industries || depots || args.stations;
     let found = if wants_install {
         Install::find(args.game.as_deref())
     } else {
@@ -524,7 +543,7 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
     if args.industries {
         prefixes.push("industries/");
     }
-    if args.depots && game.is_some() {
+    if depots && game.is_some() {
         prefixes.extend(["depots/", "assets/ingo_bootsschuppen/"]);
     }
     if args.stations && game.is_some() {
@@ -563,13 +582,36 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         layers.vehicle_names = args.names.clone();
     }
     if let Some(game) = game {
-        if args.depots {
-            layers.depot_specs = install::depot_specs(game);
-            layers.depots = instances
+        if depots {
+            let mods = Mods::find(args.mods.as_deref());
+            layers.depot_specs = install::depot_specs(Some(game), mods.as_ref());
+            let rows: Vec<Instance> = instances
                 .iter()
                 .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
                 .cloned()
                 .collect();
+            let unread = rows
+                .iter()
+                .filter(|i| {
+                    DEPOT_KINDS.iter().any(|k| {
+                        k.archive.is_none()
+                            && k.model == i.model
+                            && !layers.depot_specs.contains_key(k.id)
+                    })
+                })
+                .count();
+            if unread > 0 {
+                eprintln!(
+                    "{unread} mod depots drawn as dots without their catchment: their mod's \
+                     script was not found (try --mods DIR)"
+                );
+            }
+            if args.coverage {
+                layers.coverage = rows.clone();
+            }
+            if args.depots {
+                layers.depots = rows;
+            }
         }
         if args.stations {
             layers.station_boxes = install::station_boxes(game);
@@ -741,6 +783,9 @@ mod tests {
         assert_eq!(a.options.road_width, 12.5);
         assert!(a.keep_dead);
         assert_eq!(a.game.as_deref(), Some(Path::new("games/tf3")));
+        assert_eq!(a.mods, None);
+        let m = run_args(&["s.sav", "--mods", "mod.io/mods"]);
+        assert_eq!(m.mods.as_deref(), Some(Path::new("mod.io/mods")));
         assert_eq!(a.options.contour_step, 10.0);
         assert!(!a.stations && a.options.rose.is_none());
         assert!(a.terrain && a.industries && a.depots && a.options.bands);
@@ -856,6 +901,9 @@ mod tests {
         }
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
         assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
+        assert!(!run_args(&["s.sav"]).coverage, "no coverage by default");
+        let a = run_args(&["s.sav", "--coverage", "--no-depots"]);
+        assert!(a.coverage && !a.depots);
         assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
     }
 
