@@ -7,11 +7,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
-use tf3_save_mapper_core::svg::{Crop, GridLines, GridStep, faces_with_measured, is_station_piece};
+use tf3_save_mapper_core::svg::{
+    Crop, EdgeLabel, GridLines, GridStep, faces_with_measured, is_station_piece, shown_edges,
+    unmatched_labels,
+};
 use tf3_save_mapper_core::{
-    Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, industry_models,
-    read_edges, read_free_ids, read_header, read_instances, read_model_table, read_terrain,
-    retain_live, write_svg,
+    Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, edge_ids,
+    industry_models, read_edges, read_free_ids, read_header, read_instances, read_model_table,
+    read_strips, read_terrain, retain_live, write_svg,
 };
 
 const USAGE: &str = "\
@@ -48,6 +51,9 @@ Options:
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279
+      --label A>B[=TEXT]  name the edge between nodes A and B (hex ids, either order) along its middle,
+                      with TEXT or A>B, and mark its ends (repeatable)
+      --edge-ids      with --label, add the edge's entity id where the strip table gives it
   -h, --help          show this help
   -V, --version       show the version";
 
@@ -70,6 +76,8 @@ struct Args {
     stations: bool,
     vehicles: bool,
     names: HashMap<usize, String>,
+    labels: Vec<EdgeLabel>,
+    edge_ids: bool,
 }
 
 enum Parsed {
@@ -86,6 +94,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     let (mut grid, mut no_grid) = (None, false);
     let (mut vehicles, mut names) = (false, HashMap::new());
+    let (mut labels, mut edge_ids) = (Vec::new(), false);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
@@ -119,6 +128,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--grid-dot-step" => options.grid_dot_step = width(&value("--grid-dot-step")?)?,
             "--keep-dead" => keep_dead = true,
             "--vehicles" => vehicles = true,
+            "--label" => labels.push(label(&value("--label")?)?),
+            "--edge-ids" => edge_ids = true,
             "--name" => {
                 let (slot, text) = name(&value("--name")?)?;
                 names.insert(slot, text);
@@ -155,6 +166,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         stations,
         vehicles,
         names,
+        labels,
+        edge_ids,
     })))
 }
 
@@ -181,6 +194,26 @@ fn crop(text: &str) -> Result<Crop, String> {
             "--crop wants X,Y,R in metres, R above 0, not {text:?}"
         )),
     }
+}
+
+/// `A>B[=TEXT]`, A and B node ids in hex.
+fn label(text: &str) -> Result<EdgeLabel, String> {
+    let bad = || format!("--label wants A>B[=TEXT] with hex node ids, not {text:?}");
+    let (pair, words) = text.split_once('=').unwrap_or((text, ""));
+    let (a, b) = pair.split_once('>').ok_or_else(bad)?;
+    let hex = |v: &str| {
+        let v = v.trim();
+        let v = v
+            .strip_prefix("0x")
+            .or_else(|| v.strip_prefix("0X"))
+            .unwrap_or(v);
+        u32::from_str_radix(v, 16).ok()
+    };
+    Ok(EdgeLabel {
+        a: hex(a).ok_or_else(bad)?,
+        b: hex(b).ok_or_else(bad)?,
+        text: (!words.is_empty()).then(|| words.to_owned()),
+    })
 }
 
 /// `SLOT=TEXT`, the slot a whole number.
@@ -282,7 +315,19 @@ fn run(args: Args) -> Result<(), String> {
         eprintln!("{unread} edges whose lanes did not read are drawn at the fallback width");
     }
 
-    let layers = read_layers(&args, &stream, &header)?;
+    let mut layers = read_layers(&args, &stream, &header)?;
+    if !args.labels.is_empty() {
+        for l in unmatched_labels(&args.labels, &shown_edges(&header, &edges, &args.options)) {
+            let (a, b) = (l.a.min(l.b), l.a.max(l.b));
+            eprintln!("no edge between {a:x} and {b:x} in the picture");
+        }
+        if args.edge_ids {
+            layers.edge_ids = edge_ids(&edges, &read_strips(&stream));
+        }
+        layers.labels = args.labels.clone();
+    } else if args.edge_ids {
+        eprintln!("--edge-ids works with --label: no ids written");
+    }
     write_output(&args, &header, &edges, &layers)?;
 
     let vehicles = if args.vehicles {
@@ -571,6 +616,37 @@ mod tests {
         assert!(parse(&["s.sav", "--grid", "100", "--no-grid"]).is_err());
         assert!(parse(&["s.sav", "--no-grid", "--grid-lines", "faint"]).is_err());
         assert!(parse(&["s.sav", "--grid-lines", "solid"]).is_err());
+    }
+
+    #[test]
+    fn labels_are_read() {
+        let a = run_args(&[
+            "s.sav",
+            "--label",
+            "2a619>342aa",
+            "--label",
+            "0x10>FF=Main street = old",
+            "--edge-ids",
+        ]);
+        assert_eq!(
+            a.labels,
+            [
+                EdgeLabel {
+                    a: 0x2a619,
+                    b: 0x342aa,
+                    text: None
+                },
+                EdgeLabel {
+                    a: 0x10,
+                    b: 0xff,
+                    text: Some("Main street = old".into())
+                }
+            ]
+        );
+        assert!(a.edge_ids);
+        for bad in ["2a619", "2a619>", "x>y", "1>2>3", "12345678901>1"] {
+            assert!(parse(&["s.sav", "--label", bad]).is_err(), "{bad}");
+        }
     }
 
     #[test]

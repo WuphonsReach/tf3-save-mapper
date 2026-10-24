@@ -7,11 +7,12 @@
 //! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
 //! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
-//! `vehicles`, `grid-labels` and `compass`.
+//! `vehicles`, `labels`, `grid-labels` and `compass`.
 
 mod depots;
 mod grid;
 mod industries;
+mod labels;
 mod rose;
 mod stations;
 mod terrain;
@@ -29,6 +30,7 @@ use crate::terrain::{GRID_STEP, Terrain};
 
 pub use grid::{GridLines, GridStep};
 pub use industries::faces_with_measured;
+pub use labels::{EdgeLabel, unmatched as unmatched_labels};
 pub use stations::is_station_piece;
 
 const ROAD_COLOUR: &str = "#323232";
@@ -151,6 +153,11 @@ pub struct Layers {
     pub vehicles: Vec<Instance>,
     /// Names to write beside vehicles, by instance slot.
     pub vehicle_names: HashMap<usize, String>,
+    /// Edges to label.
+    pub labels: Vec<EdgeLabel>,
+    /// Edge entity ids by the edge's offset in the stream, where known
+    /// (`strips::edge_ids`): on the edges' paths and in their labels.
+    pub edge_ids: HashMap<usize, u32>,
 }
 
 /// Where map points fall in the picture: metres from its top-left corner,
@@ -240,6 +247,25 @@ fn layer(id: &str, label: &str, attrs: &str) -> String {
     )
 }
 
+/// The edges that are drawn: all of them, or on a crop those that may show
+/// in it. Empty for a crop off the map.
+pub fn shown_edges<'a>(header: &Header, edges: &'a [Edge], options: &SvgOptions) -> Vec<&'a Edge> {
+    let picture = Picture {
+        width: f64::from(header.map_width),
+        height: f64::from(header.map_height),
+    };
+    match options.crop {
+        None => edges.iter().collect(),
+        Some(c) => match c.bounds(header) {
+            Some(b) => {
+                let view = View::new(&picture, b);
+                edges.iter().filter(|e| view.touches(e)).collect()
+            }
+            None => Vec::new(),
+        },
+    }
+}
+
 /// Write the map: the terrain and the other `layers`, and the roads and
 /// rails of `edges`.
 pub fn write_svg(
@@ -268,6 +294,7 @@ pub fn write_svg(
         .iter()
         .filter(|e| crop.is_none() || view.touches(e))
         .collect();
+    let edge_ids = &layers.edge_ids;
     let station_rows: Vec<Instance> = layers
         .stations
         .iter()
@@ -347,7 +374,7 @@ pub fn write_svg(
     let (stations_under, stations_over) =
         stations::layers(&picture, &station_rows, &layers.station_boxes);
     write_lines(out, &stations_under)?;
-    write_network(out, &picture, &edges, options)?;
+    write_network(out, &picture, &edges, edge_ids, options)?;
     write_lines(
         out,
         &depots::layers(&picture, &depot_rows, &layers.depot_specs),
@@ -363,6 +390,16 @@ pub fn write_svg(
             &picture,
             &vehicle_rows,
             &layers.vehicle_names,
+            options.metres_per_pixel,
+        ),
+    )?;
+    write_lines(
+        out,
+        &labels::layers(
+            &picture,
+            &edges,
+            &layers.labels,
+            edge_ids,
             options.metres_per_pixel,
         ),
     )?;
@@ -402,6 +439,7 @@ fn write_network(
     out: &mut impl Write,
     picture: &Picture,
     edges: &[&Edge],
+    ids: &HashMap<usize, u32>,
     options: &SvgOptions,
 ) -> io::Result<()> {
     // Edges grouped by family and type, in stream order within each.
@@ -456,9 +494,12 @@ fn write_network(
                 } else {
                     format!(" stroke-width=\"{width}\"")
                 };
+                let id = ids
+                    .get(&e.offset)
+                    .map_or(String::new(), |id| format!(" data-edge=\"{id:x}\""));
                 writeln!(
                     out,
-                    "<path data-a=\"{:x}\" data-b=\"{:x}\"{own} d=\"{d}\"/>",
+                    "<path data-a=\"{:x}\" data-b=\"{:x}\"{id}{own} d=\"{d}\"/>",
                     e.a, e.b
                 )?;
             }

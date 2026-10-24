@@ -3,13 +3,16 @@
 mod common;
 
 use common::{
-    BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
-    TRACK_LANES,
+    BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL,
+    LONE_STRIP_ID, PIT, STRIP_ID, STRIP_ROWS, TRACK_LANES,
 };
-use tf3_save_mapper_core::svg::{Crop, GridLines, GridStep};
+use tf3_save_mapper_core::svg::{
+    Crop, EdgeLabel, GridLines, GridStep, shown_edges, unmatched_labels,
+};
 use tf3_save_mapper_core::{
-    Family, Layers, SvgOptions, container, industry_models, read_edges, read_free_ids, read_header,
-    read_instances, read_model_table, read_terrain, retain_live, write_svg,
+    Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
+    read_header, read_instances, read_model_table, read_strips, read_terrain, retain_live,
+    write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -482,6 +485,72 @@ fn a_crop_draws_only_the_vehicles_in_it() {
         "55 m east, outside"
     );
     assert!(!vehicle_layer(&svg).contains("<text"), "no names asked for");
+}
+
+#[test]
+fn the_strip_table_gives_the_first_edge_its_id() {
+    let stream = common::stream(&edges());
+    let strips = read_strips(&stream);
+    let ids: Vec<u32> = strips.iter().map(|s| s.id).collect();
+    assert_eq!(
+        ids,
+        [STRIP_ID, LONE_STRIP_ID],
+        "nothing else reads as a row"
+    );
+    assert_eq!(strips[0].rows, STRIP_ROWS);
+    let found = read_edges(&stream).unwrap();
+    let known = edge_ids(&found, &strips);
+    assert_eq!(known.len(), 1);
+    assert_eq!(known[&found[0].offset], STRIP_ID);
+}
+
+#[test]
+fn labels_name_the_edges_asked_for() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let found = read_edges(&stream).unwrap();
+    let layers = Layers {
+        labels: vec![
+            EdgeLabel {
+                a: 101,
+                b: 100,
+                text: None,
+            },
+            EdgeLabel {
+                a: 101,
+                b: 102,
+                text: Some("High Street".into()),
+            },
+            EdgeLabel {
+                a: 7,
+                b: 8,
+                text: None,
+            },
+        ],
+        edge_ids: edge_ids(&found, &read_strips(&stream)),
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &found, &layers, &SvgOptions::default()).unwrap();
+    let svg = String::from_utf8(out).unwrap();
+    // The first edge's middle is (-950, 500): picture (1098, 524).
+    assert!(
+        svg.contains(
+            "<g class=\"edge-label\" data-a=\"64\" data-b=\"65\"><text transform=\"translate(1098.0 524.0) rotate(0.0)\""
+        ),
+        "{svg}"
+    );
+    assert!(svg.contains(">64&gt;65 e7de1</text>"));
+    assert!(svg.contains(">High Street</text>"));
+    assert!(svg.contains("<path data-a=\"64\" data-b=\"65\" data-edge=\"7de1\""));
+    // Three end nodes; the one they share is half in each colour.
+    assert_eq!(svg.matches("class=\"node\"").count(), 3);
+    assert!(svg.contains("data-edges=\"64>65 65>66\""));
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("rails") < at("labels") && at("labels") < at("grid-labels"));
+    let shown = shown_edges(&header, &found, &SvgOptions::default());
+    let missing = unmatched_labels(&layers.labels, &shown);
+    assert_eq!(missing, [&layers.labels[2]]);
 }
 
 #[test]

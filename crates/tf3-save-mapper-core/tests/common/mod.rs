@@ -1,7 +1,7 @@
 //! A hand-built stream with the structures the reader looks for, and nothing
 //! from a real save: a header, a model table, the terrain, a street-edge
-//! table, a decoy, model instances (an industry and two vehicles) and a
-//! free-id list.
+//! table, a decoy, model instances (an industry and two vehicles), two
+//! road-surface strip entries and a free-id list.
 
 #![allow(dead_code)]
 
@@ -77,6 +77,16 @@ pub const BUS_FACING: (f32, f32) = (0.28, -0.96);
 pub const WAGGON_ID: u32 = 122;
 pub const WAGGON_AT: (f32, f32) = (-850.75, 401.5);
 pub const WAGGON_FACING: (f32, f32) = (-0.8, 0.6);
+/// A strip entry along the first edge (both sides, two rows each), and one
+/// with a single side, which pairs with no edge.
+pub const STRIP_ID: u32 = 0x7de1;
+pub const STRIP_ROWS: [(u8, f32, f32); 4] = [
+    (0, -990.0, 504.5),
+    (1, -990.0, 495.5),
+    (0, -905.25, 504.5),
+    (1, -905.25, 495.5),
+];
+pub const LONE_STRIP_ID: u32 = 0x7de2;
 
 /// The height value at grid column `c`, row `r` of the stitched grid.
 pub fn height(c: usize, r: usize) -> u16 {
@@ -261,9 +271,22 @@ pub fn instance(id: u32, at: (f32, f32), facing: (f32, f32)) -> Vec<u8> {
     b
 }
 
+/// One row of the strip table: `0x41`, the entry's id, the side, four
+/// bytes not read, the u32 4 twice and the side's x and y.
+pub fn strip_row(id: u32, side: u8, x: f32, y: f32) -> Vec<u8> {
+    let mut b = vec![0x41];
+    b.extend_from_slice(&id.to_le_bytes());
+    b.push(side);
+    b.extend_from_slice(&[0x3c, 0, 0, 0]);
+    u32s(&mut b, &[4, 4]);
+    b.extend_from_slice(&x.to_le_bytes());
+    b.extend_from_slice(&y.to_le_bytes());
+    b
+}
+
 /// The whole stream: header, model table, terrain, a run of counters, the
-/// edge table, a decoy record far from it, the farm's instance and a
-/// free-id list near the end.
+/// edge table, a decoy record far from it, the farm's and vehicles'
+/// instances, the strip entries and a free-id list near the end.
 pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     let mut s = header(604);
     s.extend_from_slice(&model_table());
@@ -291,6 +314,11 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     s.extend_from_slice(&[0x22; 9]);
     s.extend_from_slice(&instance(BUS_ID, BUS_AT, BUS_FACING));
     s.extend_from_slice(&instance(WAGGON_ID, WAGGON_AT, WAGGON_FACING));
+    for (side, x, y) in STRIP_ROWS {
+        s.extend_from_slice(&strip_row(STRIP_ID, side, x, y));
+        s.extend_from_slice(&[0x13; 6]);
+    }
+    s.extend_from_slice(&strip_row(LONE_STRIP_ID, 0, -700.5, 470.0));
     // The free-id list: a count word, a head that breaks the ascending run,
     // the long run and some unsorted ids; then its trailer (2, a u32, a str
     // of digits) and words no id can be.
