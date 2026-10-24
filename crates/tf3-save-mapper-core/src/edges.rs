@@ -70,10 +70,7 @@ impl Edge {
 
     /// Horizontal length between the end positions, metres.
     pub fn length(&self) -> f64 {
-        hypot(
-            f64::from(self.p1[0]) - f64::from(self.p0[0]),
-            f64::from(self.p1[1]) - f64::from(self.p0[1]),
-        )
+        chord_length(self.p0, self.p1)
     }
 
     /// The centre line as a cubic Bezier in x, y: the end positions, each
@@ -106,11 +103,17 @@ impl Edge {
 fn distance_from_segment(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
-    hypot(p.0 - (a.0 + t * dx), p.1 - (a.1 + t * dy))
+    (p.0 - (a.0 + t * dx)).hypot(p.1 - (a.1 + t * dy))
 }
 
-fn hypot(x: f64, y: f64) -> f64 {
-    x.hypot(y)
+/// Horizontal distance between two positions, metres.
+fn chord_length(p0: [f32; 3], p1: [f32; 3]) -> f64 {
+    (f64::from(p1[0]) - f64::from(p0[0])).hypot(f64::from(p1[1]) - f64::from(p0[1]))
+}
+
+/// Horizontal length of a tangent.
+fn tangent_length(t: [f32; 3]) -> f64 {
+    f64::from(t[0]).hypot(f64::from(t[1]))
 }
 
 fn u32_at(data: &[u8], at: usize) -> Option<u32> {
@@ -184,19 +187,14 @@ fn plausible(a: u32, b: u32, p0: [f32; 3], p1: [f32; 3], t0: [f32; 3], t1: [f32;
             return false;
         }
     }
-    let length = hypot(
-        f64::from(p1[0]) - f64::from(p0[0]),
-        f64::from(p1[1]) - f64::from(p0[1]),
-    );
+    let length = chord_length(p0, p1);
     if !(1.0 < length && length < 5000.0) {
         return false;
     }
     if !t0.iter().chain(&t1).all(|c| c.is_finite()) {
         return false;
     }
-    [t0, t1]
-        .iter()
-        .all(|t| hypot(f64::from(t[0]), f64::from(t[1])) < 5.0 * length)
+    [t0, t1].iter().all(|&t| tangent_length(t) < 5.0 * length)
 }
 
 /// The template and family of the record starting at `start`. The street
@@ -311,9 +309,9 @@ fn record_before(data: &[u8], offset: usize) -> Option<Edge> {
         .filter_map(|start| parse_record(data, start))
         .filter(|e| {
             e.template.is_some()
-                && [e.t0, e.t1].iter().all(|t| {
-                    (hypot(f64::from(t[0]), f64::from(t[1])) - e.length()).abs() < 0.2 * e.length()
-                })
+                && [e.t0, e.t1]
+                    .iter()
+                    .all(|t| (tangent_length(*t) - e.length()).abs() < 0.2 * e.length())
         });
     let first = found.next()?;
     found.next().is_none().then_some(first)
