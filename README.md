@@ -79,6 +79,8 @@ Measured on 2026-10-24, release build, one machine, one save at a time. `tf3map`
 
 The busy saves (over 1,000 vehicles, 120 to 190 industries, rail, ships and aircraft) take 1 to 3 seconds. Time and memory grow with the size of the save's data stream, not only with the number of edges.
 
+A further sample of 69 catalog saves (every third entry of a list of 208) ran without a failure: median 0.7 s and 370 MB, slowest 2.9 s and 1.6 GB.
+
 ## How it relates to other projects
 
 - The `.sav` layout comes from [tf3-save-format](https://github.com/WuphonsReach/tf3-save-format), a set of notes on the format. This tool has its own small reader and does not depend on any other save library.
