@@ -210,6 +210,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         // Running west: the text is turned back so it reads left to right.
         let west = edge(0x2a619, 0x342aa, [100.0, 0.0, 0.0], [0.0, 0.0, 0.0], 7);

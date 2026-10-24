@@ -2,8 +2,9 @@
 //!
 //! Coordinates inside the drawing are map metres from the picture's top-left
 //! corner, with north up and east right (x is east and y is north in the game's
-//! own frame, `docs/compass.md` in tf3-save-format). The `viewBox` is the map in
-//! metres, so widths are in metres too and scale with the picture. Layers are
+//! own frame, `docs/compass.md` in tf3-save-format), or with `North::Sun` x up
+//! and y to the left. The `viewBox` is the map in metres (or the crop), so
+//! widths are in metres too and scale with the picture. Layers are
 //! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
 //! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
@@ -61,8 +62,13 @@ pub struct SvgOptions {
     pub index_every: u32,
     /// Fill the height bands with a colour ramp; without, the land is one colour.
     pub bands: bool,
-    /// Draw a compass rose in the lower right corner.
-    pub rose: bool,
+    /// Where the compass rose goes, if anywhere.
+    pub rose: Option<Rose>,
+    /// The rose circle's diameter, metres. Default 250, at most an eighth of
+    /// the picture's shorter side.
+    pub rose_size: Option<f64>,
+    /// Which way is up.
+    pub north: North,
     /// The grid of map coordinates.
     pub grid: GridStep,
     /// Which grid lines are drawn besides the crosses.
@@ -86,7 +92,9 @@ impl Default for SvgOptions {
             contour_step: 20.0,
             index_every: 5,
             bands: true,
-            rose: true,
+            rose: Some(Rose::LowerRight),
+            rose_size: None,
+            north: North::Game,
             grid: GridStep::Auto,
             grid_lines: GridLines::Auto,
             grid_dot_step: 25.0,
@@ -94,6 +102,27 @@ impl Default for SvgOptions {
             zoom: 1,
         }
     }
+}
+
+/// Which way the map is turned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum North {
+    /// As the game's name compass has it: up is +y, right is +x.
+    Game,
+    /// From the sun's path (`docs/terrain.md` in tf3-save-format): up is +x,
+    /// right is -y.
+    Sun,
+}
+
+/// Where the compass rose goes: a corner of the picture, or its centre at a
+/// map point (metres).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Rose {
+    LowerRight,
+    LowerLeft,
+    UpperLeft,
+    UpperRight,
+    At(f64, f64),
 }
 
 /// A square part of the map: half-width `radius` metres round (`x`, `y`).
@@ -160,22 +189,38 @@ pub struct Layers {
     pub edge_ids: HashMap<usize, u32>,
 }
 
-/// Where map points fall in the picture: metres from its top-left corner,
-/// x to the right and y down.
+/// Where map points fall in the picture: metres from the top-left corner of
+/// the whole map's picture, u to the right and v down. `width` and `height`
+/// are the map's extent in x and in y. Only this knows which way north is.
 #[derive(Debug, Clone, Copy)]
 struct Picture {
     width: f64,
     height: f64,
+    north: North,
 }
 
 impl Picture {
+    fn new(header: &Header, north: North) -> Picture {
+        Picture {
+            width: f64::from(header.map_width),
+            height: f64::from(header.map_height),
+            north,
+        }
+    }
+
     fn pic(&self, (x, y): (f64, f64)) -> (f64, f64) {
-        (x + self.width / 2.0, self.height / 2.0 - y)
+        match self.north {
+            North::Game => (x + self.width / 2.0, self.height / 2.0 - y),
+            North::Sun => (self.height / 2.0 - y, self.width / 2.0 - x),
+        }
     }
 
     /// A map vector as a picture vector.
     fn vec(&self, (dx, dy): (f64, f64)) -> (f64, f64) {
-        (dx, -dy)
+        match self.north {
+            North::Game => (dx, -dy),
+            North::Sun => (-dy, -dx),
+        }
     }
 }
 
@@ -250,10 +295,7 @@ fn layer(id: &str, label: &str, attrs: &str) -> String {
 /// The edges that are drawn: all of them, or on a crop those that may show
 /// in it. Empty for a crop off the map.
 pub fn shown_edges<'a>(header: &Header, edges: &'a [Edge], options: &SvgOptions) -> Vec<&'a Edge> {
-    let picture = Picture {
-        width: f64::from(header.map_width),
-        height: f64::from(header.map_height),
-    };
+    let picture = Picture::new(header, options.north);
     match options.crop {
         None => edges.iter().collect(),
         Some(c) => match c.bounds(header) {
@@ -275,11 +317,7 @@ pub fn write_svg(
     layers: &Layers,
     options: &SvgOptions,
 ) -> io::Result<()> {
-    let (w, h) = (f64::from(header.map_width), f64::from(header.map_height));
-    let picture = Picture {
-        width: w,
-        height: h,
-    };
+    let picture = Picture::new(header, options.north);
     let crop = match options.crop {
         Some(c) => Some(c.bounds(header).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "the crop lies outside the map")
@@ -404,8 +442,11 @@ pub fn write_svg(
         ),
     )?;
     write_lines(out, &grid_labels)?;
-    if options.rose {
-        write_lines(out, &rose::compass(&picture, &view))?;
+    if let Some(place) = options.rose {
+        write_lines(
+            out,
+            &rose::compass(&picture, &view, place, options.rose_size),
+        )?;
     }
     writeln!(out, "</svg>")
 }
@@ -684,7 +725,7 @@ mod tests {
     fn render(edges: &[Edge]) -> String {
         let mut out = Vec::new();
         let options = SvgOptions {
-            rose: false,
+            rose: None,
             ..SvgOptions::default()
         };
         write_svg(&mut out, &header(), edges, &Layers::default(), &options).unwrap();

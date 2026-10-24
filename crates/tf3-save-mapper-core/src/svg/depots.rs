@@ -110,6 +110,7 @@ mod tests {
         let picture = Picture {
             width: 200.0,
             height: 200.0,
+            north: crate::svg::North::Game,
         };
         let specs = HashMap::from([(
             "road-depots",

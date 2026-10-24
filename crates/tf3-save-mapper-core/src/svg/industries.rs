@@ -308,6 +308,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let faces = faces_with_measured(HashMap::from([(
             "farm".to_owned(),
@@ -332,6 +333,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let text = layers(&picture, &[farm(0.0, 0.0)], &HashMap::new()).join("\n");
         assert!(text.contains("data-diameter=\"64.0\""));

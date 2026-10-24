@@ -8,8 +8,8 @@ use std::process::ExitCode;
 
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
 use tf3_save_mapper_core::svg::{
-    Crop, EdgeLabel, GridLines, GridStep, faces_with_measured, is_station_piece, shown_edges,
-    unmatched_labels,
+    Crop, EdgeLabel, GridLines, GridStep, North, Rose, faces_with_measured, is_station_piece,
+    shown_edges, unmatched_labels,
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, edge_ids,
@@ -35,7 +35,13 @@ Options:
       --no-industries leave out the industries
       --no-depots     leave out the depots and maintenance buildings
       --no-stations   leave out the stations
-      --no-rose       leave out the compass rose
+      --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
+                      upper-right, off, or X,Y (map metres) for its centre
+      --rose-size M   the rose circle's diameter in metres (default 250, at most an eighth of the
+                      picture's shorter side)
+      --no-rose       leave out the compass rose (the same as --rose off)
+      --north N       which way north is drawn: game (default: up is +y, right is +x, as the
+                      game's name compass has it) or sun (up is +x, right is -y, from the sun's path)
       --grid N        marks every N metres of map x and y, the 1000 m ones major (default: major marks
                       only, every third of the shorter side rounded down to 1, 2 or 5 x a power of ten,
                       at least 1000 m on a whole map)
@@ -121,7 +127,10 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--no-industries" => industries = false,
             "--no-depots" => depots = false,
             "--no-stations" => stations = false,
-            "--no-rose" => options.rose = false,
+            "--no-rose" => options.rose = None,
+            "--rose" => options.rose = rose(&value("--rose")?)?,
+            "--rose-size" => options.rose_size = Some(width(&value("--rose-size")?)?),
+            "--north" => options.north = north(&value("--north")?)?,
             "--grid" => grid = Some(grid_step(&value("--grid")?)?),
             "--no-grid" => no_grid = true,
             "--grid-lines" => options.grid_lines = grid_lines(&value("--grid-lines")?)?,
@@ -176,6 +185,41 @@ fn width(text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(w) if w.is_finite() && w > 0.0 => Ok(w),
         _ => Err(format!("want a number of metres above 0, not {text:?}")),
+    }
+}
+
+/// A corner, `off`, or `X,Y` in map metres.
+fn rose(text: &str) -> Result<Option<Rose>, String> {
+    Ok(Some(match text {
+        "off" => return Ok(None),
+        "lower-right" => Rose::LowerRight,
+        "lower-left" => Rose::LowerLeft,
+        "upper-left" => Rose::UpperLeft,
+        "upper-right" => Rose::UpperRight,
+        _ => {
+            let v: Vec<f64> = text
+                .split(',')
+                .map(|n| n.trim().parse::<f64>())
+                .collect::<Result<_, _>>()
+                .unwrap_or_default();
+            match v[..] {
+                [x, y] if x.is_finite() && y.is_finite() => Rose::At(x, y),
+                _ => {
+                    return Err(format!(
+                        "--rose wants off, a corner (lower-left, lower-right, upper-left, \
+                         upper-right) or X,Y in metres, not {text:?}"
+                    ));
+                }
+            }
+        }
+    }))
+}
+
+fn north(text: &str) -> Result<North, String> {
+    match text {
+        "game" => Ok(North::Game),
+        "sun" => Ok(North::Sun),
+        _ => Err(format!("--north wants game or sun, not {text:?}")),
     }
 }
 
@@ -598,7 +642,7 @@ mod tests {
         assert!(a.keep_dead);
         assert_eq!(a.game.as_deref(), Some(Path::new("games/tf3")));
         assert_eq!(a.options.contour_step, 10.0);
-        assert!(!a.stations && !a.options.rose);
+        assert!(!a.stations && a.options.rose.is_none());
         assert!(a.terrain && a.industries && a.depots && a.options.bands);
         assert_eq!(a.options.grid, GridStep::Auto, "a grid by default");
     }
@@ -616,6 +660,33 @@ mod tests {
         assert!(parse(&["s.sav", "--grid", "100", "--no-grid"]).is_err());
         assert!(parse(&["s.sav", "--no-grid", "--grid-lines", "faint"]).is_err());
         assert!(parse(&["s.sav", "--grid-lines", "solid"]).is_err());
+    }
+
+    #[test]
+    fn compass_options_are_read() {
+        let a = run_args(&["s.sav"]);
+        assert_eq!(a.options.rose, Some(Rose::LowerRight));
+        assert_eq!(a.options.north, North::Game);
+        let a = run_args(&[
+            "s.sav",
+            "--rose",
+            "upper-left",
+            "--rose-size",
+            "400",
+            "--north",
+            "sun",
+        ]);
+        assert_eq!(a.options.rose, Some(Rose::UpperLeft));
+        assert_eq!(a.options.rose_size, Some(400.0));
+        assert_eq!(a.options.north, North::Sun);
+        let a = run_args(&["s.sav", "--rose", "-120.5, 300"]);
+        assert_eq!(a.options.rose, Some(Rose::At(-120.5, 300.0)));
+        assert_eq!(run_args(&["s.sav", "--rose", "off"]).options.rose, None);
+        for bad in ["middle", "1", "1,2,3", "a,b"] {
+            assert!(parse(&["s.sav", "--rose", bad]).is_err(), "{bad}");
+        }
+        assert!(parse(&["s.sav", "--rose-size", "0"]).is_err());
+        assert!(parse(&["s.sav", "--north", "up"]).is_err());
     }
 
     #[test]

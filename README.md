@@ -15,11 +15,11 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Industries**: each industry's footprint, and a badge with its icon.
 - **Vehicles**, when asked for: one shape per vehicle, pointing where it faces.
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
-- A **compass rose** in the lower right corner.
+- A **compass rose**, in the lower right corner unless asked elsewhere.
 
 The shapes of stations, depots and industry footprints come from the game's own files, read from your install when the tool runs (see below). Without an install the map still has the terrain, the network and the industry badges.
 
-Drawing choices: labels are left out rather than moved, one outline width (1.5 m), no inner lines, plain dark anchors. The compass follows the game's own axes (x east, y north). The colours are our own, not the game's.
+Drawing choices: labels are left out rather than moved, one outline width (1.5 m), no inner lines, plain dark anchors. By default the compass follows the game's own axes (x east, y north); `--north sun` turns the map to the north the sun's path gives. The colours are our own, not the game's.
 
 ## Using it
 
@@ -34,6 +34,8 @@ Options (`tf3map --help` lists them all):
 - `--game DIR`: the game's install folder, the one holding `base/`. By default the usual Steam folders and their library folders are tried.
 - `--contour M` sets the metres between height lines and bands (default 20); `--no-bands` leaves the colour bands out.
 - `--no-terrain`, `--no-industries`, `--no-depots`, `--no-stations` and `--no-rose` leave a layer out.
+- `--rose WHERE` puts the compass rose in a corner (`lower-right`, the default, `lower-left`, `upper-left`, `upper-right`), round the map point `X,Y`, or nowhere (`off`); `--rose-size M` sets its diameter (default 250 m, at most an eighth of the picture's shorter side).
+- `--north sun` turns the map so that up is +x and right is -y, the north the sun's path gives, instead of the game's own (`--north game`, the default: up is +y).
 - `--min-width M` draws no road or track narrower than M metres, so tracks stay visible on a whole-map view.
 - `--road-width M` and `--rail-width M` set the width of an edge whose lanes cannot be read (default 16 and 4).
 - `--keep-dead` also draws roads the game deleted but left in the save.

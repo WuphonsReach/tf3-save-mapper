@@ -302,6 +302,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let boxes = HashMap::from([
             (
@@ -337,6 +338,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let boxes = HashMap::from([(
             "stations/water/models/dock_50_12.mdl".to_owned(),

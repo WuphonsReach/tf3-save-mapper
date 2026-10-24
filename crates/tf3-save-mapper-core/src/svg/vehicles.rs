@@ -203,6 +203,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let rows = [
             vehicle(4, "vehicle/bus/old/bus.mdl", (0.0, 1.0)),

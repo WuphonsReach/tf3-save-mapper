@@ -7,7 +7,7 @@ use common::{
     LONE_STRIP_ID, PIT, STRIP_ID, STRIP_ROWS, TRACK_LANES,
 };
 use tf3_save_mapper_core::svg::{
-    Crop, EdgeLabel, GridLines, GridStep, shown_edges, unmatched_labels,
+    Crop, EdgeLabel, GridLines, GridStep, North, Rose, shown_edges, unmatched_labels,
 };
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
@@ -551,6 +551,83 @@ fn labels_name_the_edges_asked_for() {
     let shown = shown_edges(&header, &found, &SvgOptions::default());
     let missing = unmatched_labels(&layers.labels, &shown);
     assert_eq!(missing, [&layers.labels[2]]);
+}
+
+#[test]
+fn north_to_the_left_turns_every_layer() {
+    let svg = render(&SvgOptions {
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    // Up is +x and right is -y: the 4096 x 2048 m map stands 2048 wide and 4096 high.
+    assert!(svg.contains("viewBox=\"0 0 2048 4096\""), "{svg}");
+    assert!(svg.contains("<rect width=\"2048\" height=\"4096\""));
+    // (x, y) is at (1024 - y, 2048 - x): the first edge runs up the picture.
+    assert!(svg.contains("d=\"M524.0 3048.0L524.0 2948.0\""), "{svg}");
+    // The pit's water ring lies round (1024 + 224, 2048 + 848).
+    let water = svg
+        .split("class=\"water\"")
+        .nth(1)
+        .and_then(|w| w.split(" d=\"").nth(1))
+        .and_then(|d| d.split('"').next())
+        .unwrap();
+    let (x, y) = (-2048.0 + 4.0 * PIT.0 as f64, -1024.0 + 4.0 * PIT.1 as f64);
+    let (cu, cv) = (1024.0 - y, 2048.0 - x);
+    for point in water.trim_end_matches('Z')[1..].split('L') {
+        let mut uv = point.split(' ').map(|n| n.parse::<f64>().unwrap());
+        let (u, v) = (uv.next().unwrap(), uv.next().unwrap());
+        let r = (u - cu).hypot(v - cv);
+        assert!(
+            (70.0..=95.0).contains(&r),
+            "({u}, {v}) is {r} m from the pit"
+        );
+    }
+    // Lines of constant y run up the picture and are labelled along the top.
+    assert!(svg.contains(">y 0</text>") && svg.contains(">x 0</text>"));
+    assert!(svg.contains("<path d=\"M1024 0V4096\""));
+    // The farm's badge: its origin at (1024 - 300, 2048 + 500).
+    assert!(
+        svg.contains("<circle cx=\"724.00\" cy=\"2548.00\""),
+        "{svg}"
+    );
+    // The rose's arrow points left.
+    let rose = svg.split("id=\"compass\"").nth(1).unwrap();
+    assert!(
+        rose.contains("<circle cx=\"1904.2\" cy=\"3952.2\" r=\"125.0\""),
+        "{rose}"
+    );
+    assert!(rose.contains("M1904.2 3952.2L1811.4 3952.2"), "{rose}");
+}
+
+#[test]
+fn the_rose_goes_where_it_is_asked_at_its_size() {
+    let at = |rose: Option<Rose>, size: Option<f64>| {
+        let svg = render(&SvgOptions {
+            rose,
+            rose_size: size,
+            grid: GridStep::Off,
+            ..SvgOptions::default()
+        });
+        svg.split("id=\"compass\"")
+            .nth(1)
+            .and_then(|r| r.split("<circle ").nth(1))
+            .map(|c| c.split(" fill").next().unwrap().to_owned())
+    };
+    // 250 m by default; 2048 / 8 is more.
+    assert_eq!(
+        at(Some(Rose::LowerRight), None).as_deref(),
+        Some("cx=\"3952.2\" cy=\"1904.2\" r=\"125.0\"")
+    );
+    assert_eq!(
+        at(Some(Rose::UpperLeft), Some(400.0)).as_deref(),
+        Some("cx=\"230.0\" cy=\"230.0\" r=\"200.0\"")
+    );
+    let farm = Rose::At(f64::from(FARM_AT.0), f64::from(FARM_AT.1));
+    assert_eq!(
+        at(Some(farm), Some(50.0)).as_deref(),
+        Some("cx=\"1548.0\" cy=\"724.0\" r=\"25.0\"")
+    );
+    assert_eq!(at(None, None), None);
 }
 
 #[test]

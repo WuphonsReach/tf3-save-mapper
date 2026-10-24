@@ -13,7 +13,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
-use super::{Picture, SvgOptions, fmt_g, layer};
+use super::{North, Picture, SvgOptions, fmt_g, layer};
 use crate::contour::{Grid, Point, level_rings, simplify, split_at_border};
 use crate::terrain::{GRID_STEP, Terrain};
 
@@ -92,22 +92,36 @@ fn tenths(t: i64) -> String {
 }
 
 /// The grid points of `columns` and `rows` in picture order, every `step`th
-/// point: picture row 0 is the northernmost grid row.
+/// point. `Game`: picture row 0 is the northernmost grid row (y largest), and
+/// x rises along it from the first column. `Sun`: picture row 0 is the last
+/// grid column (x largest), and y falls along it from the last row.
 fn picture_grid(
     t: &Terrain,
     step: usize,
     columns: RangeInclusive<usize>,
     rows: RangeInclusive<usize>,
+    north: North,
 ) -> Grid {
-    let picked_rows: Vec<usize> = rows.rev().step_by(step).collect();
-    let picked_columns: Vec<usize> = columns.step_by(step).collect();
-    let mut values = Vec::with_capacity(picked_columns.len() * picked_rows.len());
-    for &r in &picked_rows {
-        values.extend(picked_columns.iter().map(|&c| t.at(c, r)));
+    let (outer, inner): (Vec<usize>, Vec<usize>) = match north {
+        North::Game => (
+            rows.rev().step_by(step).collect(),
+            columns.step_by(step).collect(),
+        ),
+        North::Sun => (
+            columns.rev().step_by(step).collect(),
+            rows.rev().step_by(step).collect(),
+        ),
+    };
+    let mut values = Vec::with_capacity(outer.len() * inner.len());
+    for &o in &outer {
+        values.extend(inner.iter().map(|&i| match north {
+            North::Game => t.at(i, o),
+            North::Sun => t.at(o, i),
+        }));
     }
     Grid {
-        width: picked_columns.len(),
-        height: picked_rows.len(),
+        width: inner.len(),
+        height: outer.len(),
         values,
     }
 }
@@ -145,8 +159,14 @@ pub(super) fn write(
     let spacing = GRID_STEP * step as f64;
     let unit = f64::from(t.unit);
     let (columns, rows) = grid_span(t, crop);
-    let (c0, r1) = (*columns.start(), *rows.end());
-    let grid = picture_grid(t, step, columns, rows);
+    // The cut grid's top-left corner: the first column and last row, or with
+    // north to the left the last column and the last row.
+    let corner_c = match options.north {
+        North::Game => *columns.start(),
+        North::Sun => *columns.end(),
+    };
+    let r1 = *rows.end();
+    let grid = picture_grid(t, step, columns, rows, options.north);
     let step_m = options.contour_step;
     let (rings, extent) = level_rings(
         &grid,
@@ -164,7 +184,7 @@ pub(super) fn write(
     // header give another map size.
     let (tw, th) = t.size();
     let (u0, v0) = picture.pic((
-        -f64::from(tw) / 2.0 + GRID_STEP * c0 as f64,
+        -f64::from(tw) / 2.0 + GRID_STEP * corner_c as f64,
         -f64::from(th) / 2.0 + GRID_STEP * r1 as f64,
     ));
     let shift = if u0 != 0.0 || v0 != 0.0 {
@@ -298,10 +318,16 @@ mod tests {
             water_level: 0.0,
             heights: (0..65 * 65).map(|i| (i / 65) as u16).collect(),
         };
-        let g = picture_grid(&t, 2, 0..=64, 0..=64);
+        let g = picture_grid(&t, 2, 0..=64, 0..=64, North::Game);
         assert_eq!((g.width, g.height), (33, 33));
         // Row 0 of the picture is the last grid row (y largest).
         assert_eq!(g.values[0], 64);
         assert_eq!(g.values[g.width * 32], 0);
+        // A part of it, turned for the sun: picture row 0 is column 40, and
+        // along it the rows fall from 30.
+        let g = picture_grid(&t, 1, 10..=40, 20..=30, North::Sun);
+        assert_eq!((g.width, g.height), (11, 31));
+        assert_eq!(&g.values[..3], &[30, 29, 28]);
+        assert_eq!(g.values[g.width * 30 + 10], 20);
     }
 }

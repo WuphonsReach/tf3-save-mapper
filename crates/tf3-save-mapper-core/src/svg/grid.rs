@@ -11,9 +11,11 @@
 //! dots or faint solid lines). Labels are never moved to stay legible: a
 //! left one that would sit in the top row of labels, and a top one that would
 //! run off the right edge, are left out. The marks go over the terrain and
-//! under the network; the labels over everything but the compass rose.
+//! under the network; the labels over everything but the compass rose. The
+//! lines that run up the picture are labelled along the top (constant x, or
+//! constant y with `North::Sun`), those that run across it along the left.
 
-use super::{Picture, View, fmt_g, layer};
+use super::{North, Picture, View, fmt_g, layer};
 
 /// The grid's ink: violet, which no terrain, road or rail colour is near.
 const INK: &str = "#6b3fa0";
@@ -116,22 +118,46 @@ pub(super) fn layers(
     let arm = dot_step / 6.0;
 
     let step_i = i64::from(step);
-    // The lines that run up the picture (constant x) and across it (constant y).
-    let first = first_multiple(view.x_min, step_i);
-    let ups: Vec<i64> = (first..=view.x_max.floor() as i64)
+    let sun = picture.north == North::Sun;
+    // The lines that run up the picture: constant x (constant y for the sun,
+    // falling to the right), and those that run across it, falling downwards.
+    let ((up_axis, up_lo, up_hi), (across_axis, across_lo, across_hi)) = if sun {
+        (("y", view.y_min, view.y_max), ("x", view.x_min, view.x_max))
+    } else {
+        (("x", view.x_min, view.x_max), ("y", view.y_min, view.y_max))
+    };
+    let first = first_multiple(up_lo, step_i);
+    let mut ups: Vec<i64> = (first..=up_hi.floor() as i64)
         .step_by(step as usize)
         .collect();
-    let last = (view.y_max.floor() as i64).div_euclid(step_i) * step_i;
-    let low = view.y_min.ceil() as i64;
+    if sun {
+        ups.reverse();
+    }
+    let last = (across_hi.floor() as i64).div_euclid(step_i) * step_i;
+    let low = across_lo.ceil() as i64;
     let acrosses: Vec<i64> = std::iter::successors(Some(last), |v| Some(v - step_i))
         .take_while(|v| *v >= low)
         .collect();
-    // Dots sit at multiples of the dot step in map metres, so crossing lines' dots meet at the crosses.
-    let (up_start, across_start) = (view.y_max, view.x_min);
+    // Dots sit at multiples of the dot step in map metres, so crossing lines'
+    // dots meet at the crosses. The map coordinate along a line from the top
+    // edge falls downwards; along one from the left edge it rises (game) or
+    // falls (sun) to the right.
+    let (up_start, across_start) = if sun {
+        (view.x_max, view.y_max)
+    } else {
+        (view.y_max, view.x_min)
+    };
+    let along = |start: f64, every: f64| {
+        if sun {
+            (-start).rem_euclid(every)
+        } else {
+            start.rem_euclid(every)
+        }
+    };
     let up_offset = (-up_start).rem_euclid(dot_step);
-    let across_offset = across_start.rem_euclid(dot_step);
+    let across_offset = along(across_start, dot_step);
     let up_offset_major = (-up_start).rem_euclid(gap);
-    let across_offset_major = across_start.rem_euclid(gap);
+    let across_offset_major = along(across_start, gap);
 
     let dots = format!(
         "{ink} stroke-opacity=\"0.65\" stroke-width=\"{}\" stroke-linecap=\"round\" stroke-dasharray=\"0 {}\"",
@@ -163,13 +189,17 @@ pub(super) fn layers(
         " pointer-events=\"none\"",
     )];
     let top_band = size * 1.4; // the row of labels along the top edge
-    let ups_u: Vec<(i64, f64)> = ups
-        .iter()
-        .map(|&x| (x, picture.pic((x as f64, 0.0)).0))
-        .collect();
+    let point = |axis: &str, val: i64| {
+        if axis == "x" {
+            picture.pic((val as f64, 0.0))
+        } else {
+            picture.pic((0.0, val as f64))
+        }
+    };
+    let ups_u: Vec<(i64, f64)> = ups.iter().map(|&v| (v, point(up_axis, v).0)).collect();
     let acrosses_v: Vec<(i64, f64)> = acrosses
         .iter()
-        .map(|&y| (y, picture.pic((0.0, y as f64)).1))
+        .map(|&v| (v, point(across_axis, v).1))
         .collect();
     for &(val, u) in &ups_u {
         let d = format!("M{} {}V{}", fmt_g(u), fmt_g(v0), fmt_g(v0 + h));
@@ -188,7 +218,7 @@ pub(super) fn layers(
             };
             minor.push(format!("<path d=\"{d}\" {style}{extra}/>"));
         }
-        let word = format!("x {val}");
+        let word = format!("{up_axis} {val}");
         let x = u + size * 0.3;
         if x - u0 + word.len() as f64 * LABEL_EM * size <= w {
             labels.push(format!(
@@ -217,7 +247,7 @@ pub(super) fn layers(
         }
         if v - v0 - size * 1.4 >= top_band {
             labels.push(format!(
-                "<text x=\"{}\" y=\"{}\" {text}>y {val}</text>",
+                "<text x=\"{}\" y=\"{}\" {text}>{across_axis} {val}</text>",
                 fmt_g(u0 + size * 0.3),
                 fmt_g(v - size * 0.3)
             ));
@@ -272,6 +302,7 @@ mod tests {
         Picture {
             width: 4096.0,
             height: 2048.0,
+            north: crate::svg::North::Game,
         }
     }
 
@@ -321,6 +352,30 @@ mod tests {
         assert!(!labels.contains(">y 1000</text>"), "{labels}");
         // x 2000 would run off the right edge: left out.
         assert!(!labels.contains(">x 2000</text>"), "{labels}");
+    }
+
+    #[test]
+    fn with_north_to_the_left_y_runs_along_the_top() {
+        let p = Picture {
+            north: North::Sun,
+            ..picture()
+        };
+        // The picture is 2048 wide (y, falling to the right) and 4096 high (x, falling downwards).
+        let view = View::new(&p, (-2048.0, 2048.0, -1024.0, 1024.0));
+        let (marks, labels) = layers(&p, &view, 8.0, 1000, 1000, GridLines::Auto, 25.0);
+        let (marks, labels) = (marks.join("\n"), labels.join("\n"));
+        // y = 1000 runs down the picture at u = 1024 - 1000.
+        assert!(marks.contains("<path d=\"M24 0V4096\""), "{marks}");
+        // x = 2000 runs across it at v = 2048 - 2000.
+        assert!(marks.contains("<path d=\"M0 48H2048\""), "{marks}");
+        assert!(
+            labels.contains(">y 0</text>") && labels.contains(">x -1000</text>"),
+            "{labels}"
+        );
+        assert!(
+            !labels.contains(">x 2000</text>"),
+            "in the top row: left out"
+        );
     }
 
     #[test]
