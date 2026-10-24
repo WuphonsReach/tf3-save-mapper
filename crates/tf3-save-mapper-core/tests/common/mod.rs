@@ -1,5 +1,6 @@
 //! A hand-built stream with the structures the reader looks for, and nothing
-//! from a real save: a header, a street-edge table, a decoy and a free-id list.
+//! from a real save: a header, a model table, the terrain, a street-edge
+//! table, a decoy, model instances and a free-id list.
 
 #![allow(dead_code)]
 
@@ -55,6 +56,28 @@ pub const FREE_TAIL: [u32; 3] = [800, 2_000_000, 700];
 /// Words before the list's count word. The first is a count word too and
 /// reaches the same end, but the list's own is the nearer one.
 pub const FREE_DECOY: [u32; 8] = [1514, 21, 22, 23, 24, 25, 26, 27];
+
+/// The terrain: the map in 256 m tiles, height value 0 at -50 m, 0.05 m per
+/// unit, the water at 0 m (1000 units). Heights rise and fall across the map,
+/// with a pit under water round `PIT`.
+pub const TILES: (u32, u32) = (MAP_WIDTH / 256, MAP_HEIGHT / 256);
+pub const OFFSET_Z: f32 = -50.0;
+pub const WATER_LEVEL: f32 = 0.0;
+/// Grid column and row of the pit's centre, and its radius in grid points.
+pub const PIT: (usize, usize, usize) = (300, 200, 20);
+/// The model id of the one industry placed, its position and facing.
+pub const FARM_ID: u32 = 120;
+pub const FARM_AT: (f32, f32) = (-500.0, 300.0);
+pub const FARM_FACING: (f32, f32) = (0.6, 0.8);
+
+/// The height value at grid column `c`, row `r` of the stitched grid.
+pub fn height(c: usize, r: usize) -> u16 {
+    let (pc, pr, radius) = PIT;
+    if c.abs_diff(pc).pow(2) + r.abs_diff(pr).pow(2) <= radius * radius {
+        return 200 + (c % 7) as u16;
+    }
+    (2000 + 15 * (c % 97) + 7 * (r % 53)) as u16
+}
 
 /// The game's trailing empty zstd frame.
 pub const EMPTY_FRAME: [u8; 9] = [0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x00, 0x01, 0x00, 0x00];
@@ -173,10 +196,68 @@ pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
     b
 }
 
-/// The whole stream: header, a run of counters, the table, a decoy record far
-/// from it, and a free-id list near the end.
+/// The model table: 120 animals first, as the game's table sorts them, then
+/// the farm's main model and a mod's model whose id skips ahead.
+pub fn model_table() -> Vec<u8> {
+    let mut b = Vec::new();
+    let mut paths: Vec<String> = (0..FARM_ID)
+        .map(|i| format!("animal/beast_{i}.mdl"))
+        .collect();
+    paths.push("industries/farm/farm_sm.mdl".into());
+    paths.push("assets/some_mod/barn.mdl".into());
+    u32s(&mut b, &[paths.len() as u32]);
+    for (i, path) in paths.iter().enumerate() {
+        string(&mut b, if i == paths.len() - 1 { "some_mod" } else { "" });
+        string(&mut b, path);
+        u32s(&mut b, &[if i == paths.len() - 1 { 900 } else { i as u32 }]);
+    }
+    b
+}
+
+/// The terrain record, then the heightmap tile by tile.
+pub fn terrain() -> Vec<u8> {
+    let (tx, ty) = TILES;
+    let mut b = Vec::new();
+    u32s(&mut b, &[tx, ty, 5]);
+    for f in [4.0f32, 4.0, 0.05] {
+        b.extend_from_slice(&f.to_le_bytes());
+    }
+    u32s(&mut b, &[3]);
+    for f in [OFFSET_Z, WATER_LEVEL] {
+        b.extend_from_slice(&f.to_le_bytes());
+    }
+    u32s(&mut b, &[u32::MAX, 0x0e, 0, 0, 0, tx * ty]);
+    for i in 0..(tx * ty) as usize {
+        let (row, col) = (i / tx as usize, i % tx as usize);
+        u32s(&mut b, &[65 * 65]);
+        for r in 0..65 {
+            for c in 0..65 {
+                b.extend_from_slice(&height(64 * col + c, 64 * row + r).to_le_bytes());
+            }
+        }
+    }
+    b
+}
+
+/// One model instance: the id and a 4 x 4 transform turned to `facing`.
+pub fn instance(id: u32, at: (f32, f32), facing: (f32, f32)) -> Vec<u8> {
+    let mut b = id.to_le_bytes().to_vec();
+    let (fx, fy) = facing;
+    for f in [
+        fx, fy, 0.0, 0.0, -fy, fx, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, at.0, at.1, 61.25, 1.0,
+    ] {
+        b.extend_from_slice(&f.to_le_bytes());
+    }
+    b
+}
+
+/// The whole stream: header, model table, terrain, a run of counters, the
+/// edge table, a decoy record far from it, the farm's instance and a
+/// free-id list near the end.
 pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     let mut s = header(604);
+    s.extend_from_slice(&model_table());
+    s.extend_from_slice(&terrain());
     // The table's first record follows small counters, not a `.street`; the last is 0.
     for i in 0..40u32 {
         u32s(&mut s, &[if i == 39 { 0 } else { i + 1 }]);
@@ -195,6 +276,8 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
         template: "street/decoy/decoy",
         ..EdgeSpec::default()
     }));
+    s.extend_from_slice(&[0x11; 13]);
+    s.extend_from_slice(&instance(FARM_ID, FARM_AT, FARM_FACING));
     // The free-id list: a count word, a head that breaks the ascending run,
     // the long run and some unsorted ids; then its trailer (2, a u32, a str
     // of digits) and words no id can be.

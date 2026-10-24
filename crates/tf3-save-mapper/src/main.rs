@@ -5,8 +5,11 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
+use tf3_save_mapper_core::svg::{faces_with_measured, is_station_piece};
 use tf3_save_mapper_core::{
-    Edge, Family, Header, SvgOptions, container, read_edges, read_free_ids, read_header,
+    Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, industry_models,
+    read_edges, read_free_ids, read_header, read_instances, read_model_table, read_terrain,
     retain_live, write_svg,
 };
 
@@ -17,17 +20,37 @@ Usage: tf3map [OPTIONS] SAVE.sav
 
 Options:
   -o, --output FILE   where to write the SVG (default: the save's name with .svg, in the current folder)
-      --road-width M  stroke width of a road in metres (default 16)
-      --rail-width M  stroke width of a track in metres (default 4)
+      --game DIR      the game's install folder (the one holding base/), read for the footprints of
+                      depots, stations and industries (default: the usual Steam folders)
+      --contour M     metres between height lines and height bands (default 20)
+      --no-bands      leave out the coloured height bands
+      --no-terrain    leave out the terrain
+      --no-industries leave out the industries
+      --no-depots     leave out the depots and maintenance buildings
+      --no-stations   leave out the stations
+      --no-rose       leave out the compass rose
+      --min-width M   draw no road or track narrower than M metres (default 0, the real widths)
+      --road-width M  width of a road whose lanes do not read, in metres (default 16)
+      --rail-width M  width of a track whose lanes do not read, in metres (default 4)
       --keep-dead     also draw edges whose end node is in the free-id list (roads the game deleted)
   -h, --help          show this help
   -V, --version       show the version";
+
+/// Instances this far outside the map are stray matches, not buildings.
+const MAP_MARGIN: f64 = 200.0;
+/// The closest height lines may be, metres: closer, a mountain is thousands of lines.
+const MIN_CONTOUR: f64 = 1.0;
 
 struct Args {
     save: PathBuf,
     output: PathBuf,
     options: SvgOptions,
     keep_dead: bool,
+    game: Option<PathBuf>,
+    terrain: bool,
+    industries: bool,
+    depots: bool,
+    stations: bool,
 }
 
 enum Parsed {
@@ -40,6 +63,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut output = None;
     let mut options = SvgOptions::default();
     let mut keep_dead = false;
+    let mut game = None;
+    let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
@@ -53,6 +78,15 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
+            "--min-width" => options.min_width = metres(&value("--min-width")?, 0.0)?,
+            "--contour" => options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?,
+            "--game" => game = Some(PathBuf::from(value("--game")?)),
+            "--no-bands" => options.bands = false,
+            "--no-terrain" => terrain = false,
+            "--no-industries" => industries = false,
+            "--no-depots" => depots = false,
+            "--no-stations" => stations = false,
+            "--no-rose" => options.rose = false,
             "--keep-dead" => keep_dead = true,
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown option {flag}"));
@@ -70,14 +104,28 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         output,
         options,
         keep_dead,
+        game,
+        terrain,
+        industries,
+        depots,
+        stations,
     }))
 }
 
+/// A number of metres above 0.
 fn width(text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(w) if w.is_finite() && w > 0.0 => Ok(w),
+        _ => Err(format!("want a number of metres above 0, not {text:?}")),
+    }
+}
+
+/// A number of metres, at least `least`.
+fn metres(text: &str, least: f64) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        Ok(m) if m.is_finite() && m >= least => Ok(m),
         _ => Err(format!(
-            "a width is a number of metres above 0, not {text:?}"
+            "want a number of metres of {least} or more, not {text:?}"
         )),
     }
 }
@@ -106,16 +154,115 @@ fn run(args: Args) -> Result<(), String> {
         }
     }
     let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
+    let unread = edges.iter().filter(|e| e.width.is_none()).count();
+    if unread > 0 {
+        eprintln!("{unread} edges whose lanes did not read are drawn at the fallback width");
+    }
 
-    write_output(&args, &header, &edges)?;
+    let layers = read_layers(&args, &stream, &header)?;
+    write_output(&args, &header, &edges, &layers)?;
 
     eprintln!(
-        "{} road edges, {} track edges ({dropped} deleted ones left out); wrote {}",
+        "{} road edges, {} track edges ({dropped} deleted ones left out), {} industries, \
+         {} depots, {} station pieces; wrote {}",
         edges.len() - tracks,
         tracks,
+        layers.industries.len(),
+        layers.depots.len(),
+        layers.stations.len(),
         args.output.display()
     );
     Ok(())
+}
+
+/// The terrain, and the industries, depots and stations with what the game
+/// install says about their shapes. A part that cannot be read is left out
+/// with a note, and the map is drawn without it.
+fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, String> {
+    let mut layers = Layers::default();
+    if args.terrain {
+        match read_terrain(stream) {
+            Ok(t) => layers.terrain = Some(t),
+            Err(e) => eprintln!("{e}: the map is drawn without terrain"),
+        }
+    }
+    if !(args.industries || args.depots || args.stations) {
+        return Ok(layers);
+    }
+    let found = Install::find(args.game.as_deref());
+    let game = match (&found, &args.game) {
+        (Some(game), _) => Some(game),
+        (None, Some(dir)) => {
+            return Err(format!(
+                "no game install in {} (want the folder holding base/content)",
+                dir.display()
+            ));
+        }
+        (None, None) => {
+            eprintln!(
+                "game install not found (try --game DIR): no depots or stations, \
+                 and industries without footprints"
+            );
+            None
+        }
+    };
+    let table = match read_model_table(stream) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("{e}: no industries, depots or stations");
+            return Ok(layers);
+        }
+    };
+    let mut prefixes = Vec::new();
+    if args.industries {
+        prefixes.push("industries/");
+    }
+    if args.depots && game.is_some() {
+        prefixes.extend(["depots/", "assets/ingo_bootsschuppen/"]);
+    }
+    if args.stations && game.is_some() {
+        prefixes.extend(["stations/water/", "stations/rail/", "stations/street/"]);
+    }
+    if prefixes.is_empty() {
+        return Ok(layers);
+    }
+    let (half_w, half_h) = (
+        f64::from(header.map_width) / 2.0 + MAP_MARGIN,
+        f64::from(header.map_height) / 2.0 + MAP_MARGIN,
+    );
+    let instances: Vec<Instance> = read_instances(stream, &table, &prefixes)
+        .into_iter()
+        .filter(|i| i.x.abs() <= half_w && i.y.abs() <= half_h)
+        .collect();
+
+    if args.industries {
+        let mains = industry_models(&table, &instances);
+        layers.industries = instances
+            .iter()
+            .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
+            .collect();
+        layers.industry_faces =
+            faces_with_measured(game.map(install::industry_faces).unwrap_or_default());
+    }
+    if let Some(game) = game {
+        if args.depots {
+            layers.depot_specs = install::depot_specs(game);
+            layers.depots = instances
+                .iter()
+                .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
+                .cloned()
+                .collect();
+        }
+        if args.stations {
+            layers.station_boxes = install::station_boxes(game);
+            layers.stations = instances
+                .iter()
+                .filter(|i| is_station_piece(&i.model, &layers.station_boxes))
+                .cloned()
+                .collect();
+        }
+    }
+    Ok(layers)
 }
 
 /// True when writing to `path` would land on a `.sav`. Windows drops trailing
@@ -144,7 +291,12 @@ fn temp_path(output: &Path, attempt: u32) -> PathBuf {
 /// Write to a new file beside the output and rename it into place. The rename
 /// replaces the name and never writes through it, so an output that is a hard
 /// link to the save leaves the save's contents alone.
-fn write_output(args: &Args, header: &Header, edges: &[Edge]) -> Result<(), String> {
+fn write_output(
+    args: &Args,
+    header: &Header,
+    edges: &[Edge],
+    layers: &Layers,
+) -> Result<(), String> {
     let cannot_write = |e: std::io::Error| format!("cannot write the output: {e}");
 
     // A new file only (never through an existing name); skip names already taken.
@@ -160,7 +312,7 @@ fn write_output(args: &Args, header: &Header, edges: &[Edge]) -> Result<(), Stri
         }
     };
     let mut out = BufWriter::new(file);
-    let written = write_svg(&mut out, header, edges, &args.options)
+    let written = write_svg(&mut out, header, edges, layers, &args.options)
         .and_then(|()| out.flush())
         .and_then(|()| std::fs::rename(&temp, &args.output));
     if let Err(e) = written {
@@ -244,10 +396,20 @@ mod tests {
             "--road-width",
             "12.5",
             "--keep-dead",
+            "--game",
+            "games/tf3",
+            "--contour",
+            "10",
+            "--no-stations",
+            "--no-rose",
         ]);
         assert_eq!(a.output, Path::new("out.svg"));
         assert_eq!(a.options.road_width, 12.5);
         assert!(a.keep_dead);
+        assert_eq!(a.game.as_deref(), Some(Path::new("games/tf3")));
+        assert_eq!(a.options.contour_step, 10.0);
+        assert!(!a.stations && !a.options.rose);
+        assert!(a.terrain && a.industries && a.depots && a.options.bands);
     }
 
     #[test]
@@ -264,6 +426,18 @@ mod tests {
             parse(&["a.sav", "--rail-width", "wide"]).is_err(),
             "not a number"
         );
+        assert!(
+            parse(&["a.sav", "--contour", "-5"]).is_err(),
+            "negative step"
+        );
+        assert!(
+            parse(&["a.sav", "--contour", "0.5"]).is_err(),
+            "too fine a step"
+        );
+        assert!(matches!(
+            parse(&["a.sav", "--min-width", "0"]),
+            Ok(Parsed::Run(_))
+        ));
     }
 
     #[test]
@@ -305,13 +479,8 @@ mod tests {
         let stale = temp_path(&output, 0);
         std::fs::write(&stale, b"left over").unwrap();
 
-        let args = Args {
-            save: dir.join("absent.sav"),
-            output: output.clone(),
-            options: SvgOptions::default(),
-            keep_dead: false,
-        };
-        write_output(&args, &test_header(), &[]).unwrap();
+        let args = run_args(&["absent.sav", "-o", output.to_str().unwrap()]);
+        write_output(&args, &test_header(), &[], &Layers::default()).unwrap();
 
         assert!(
             std::fs::read_to_string(&output)
@@ -332,13 +501,8 @@ mod tests {
         std::fs::write(&save, b"pretend save contents").unwrap();
         std::fs::hard_link(&save, &linked).unwrap();
 
-        let args = Args {
-            save: save.clone(),
-            output: linked.clone(),
-            options: SvgOptions::default(),
-            keep_dead: false,
-        };
-        write_output(&args, &test_header(), &[]).unwrap();
+        let args = run_args(&[save.to_str().unwrap(), "-o", linked.to_str().unwrap()]);
+        write_output(&args, &test_header(), &[], &Layers::default()).unwrap();
 
         assert_eq!(std::fs::read(&save).unwrap(), b"pretend save contents");
         assert!(

@@ -16,6 +16,10 @@ pub enum Error {
     BadLuaValue { at: usize },
     /// No street-edge table was found.
     NoEdges,
+    /// No terrain record or heightmap was found.
+    NoTerrain,
+    /// No model table was found (saves older than the table have none).
+    NoModelTable,
 }
 
 impl fmt::Display for Error {
@@ -29,6 +33,8 @@ impl fmt::Display for Error {
             Error::Truncated { at } => write!(f, "the stream ends early (reading at byte {at})"),
             Error::BadLuaValue { at } => write!(f, "unreadable Lua value at byte {at}"),
             Error::NoEdges => write!(f, "no street edges found"),
+            Error::NoTerrain => write!(f, "no terrain found"),
+            Error::NoModelTable => write!(f, "no model table found"),
         }
     }
 }

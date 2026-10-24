@@ -3,10 +3,12 @@
 mod common;
 
 use common::{
-    EdgeSpec, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, TRACK_LANES,
+    EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
+    TRACK_LANES,
 };
 use tf3_save_mapper_core::{
-    Family, SvgOptions, container, read_edges, read_free_ids, read_header, retain_live, write_svg,
+    Family, Layers, SvgOptions, container, industry_models, read_edges, read_free_ids, read_header,
+    read_instances, read_model_table, read_terrain, retain_live, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -116,6 +118,59 @@ fn finds_every_record_including_the_first_and_skips_the_decoy() {
         found[4].template.as_deref(),
         Some("industries/shared/industry_track/industry")
     );
+    // The lanes' widths added up: 3.5, 3.75, 4 and 4.25 m for a road's four.
+    let widths: Vec<Option<f32>> = found.iter().map(|e| e.width).collect();
+    assert_eq!(
+        widths,
+        [
+            Some(15.5),
+            Some(15.5),
+            Some(7.25),
+            Some(15.5),
+            Some(3.5),
+            Some(15.5)
+        ]
+    );
+}
+
+#[test]
+fn terrain_reads_tile_by_tile() {
+    let stream = common::stream(&edges());
+    let t = read_terrain(&stream).unwrap();
+    assert_eq!((t.tiles_x, t.tiles_y), common::TILES);
+    assert_eq!(t.size(), (common::MAP_WIDTH, common::MAP_HEIGHT));
+    assert_eq!(
+        (t.offset_z, t.water_level),
+        (common::OFFSET_Z, common::WATER_LEVEL)
+    );
+    assert!((t.water_units() - 1000.0).abs() < 1e-3);
+    // Tiles share their edge points; every point reads back where it was written.
+    for (c, r) in [
+        (0, 0),
+        (64, 0),
+        (65, 3),
+        (300, 200),
+        (1024, 512),
+        (777, 333),
+    ] {
+        assert_eq!(t.at(c, r), common::height(c, r), "({c}, {r})");
+    }
+}
+
+#[test]
+fn the_farm_is_found_by_its_main_model() {
+    let stream = common::stream(&edges());
+    let table = read_model_table(&stream).unwrap();
+    assert_eq!(table.paths[&900], "assets/some_mod/barn.mdl");
+    let found = read_instances(&stream, &table, &["industries/"]);
+    assert_eq!(found.len(), 1, "{found:?}");
+    let farm = &found[0];
+    assert_eq!(
+        (farm.x, farm.y),
+        (f64::from(FARM_AT.0), f64::from(FARM_AT.1))
+    );
+    assert!((farm.fx - 0.6).abs() < 1e-6 && (farm.fy - 0.8).abs() < 1e-6);
+    assert_eq!(industry_models(&table, &found)[&farm.model], "farm");
 }
 
 #[test]
@@ -148,8 +203,20 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
     let mut found = read_edges(&stream).unwrap();
     retain_live(&mut found, &read_free_ids(&stream).unwrap());
 
+    let table = read_model_table(&stream).unwrap();
+    let instances = read_instances(&stream, &table, &["industries/"]);
+    let mains = industry_models(&table, &instances);
+    let layers = Layers {
+        terrain: Some(read_terrain(&stream).unwrap()),
+        industries: instances
+            .iter()
+            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .collect(),
+        ..Layers::default()
+    };
+
     let mut out = Vec::new();
-    write_svg(&mut out, &header, &found, &SvgOptions::default()).unwrap();
+    write_svg(&mut out, &header, &found, &layers, &SvgOptions::default()).unwrap();
     let svg = String::from_utf8(out).unwrap();
 
     // x + 2048, 1024 - y: the first edge runs from (-1000, 500) to (-900, 500).
@@ -162,7 +229,40 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
         "the deleted road is not drawn"
     );
     assert!(svg.contains("seed synthetic seed"));
-    assert_eq!(svg.matches("<path ").count(), 5);
+    assert_eq!(svg.matches("<path data-a").count(), 5);
+    // The edges are as wide as their lanes.
+    assert!(
+        svg.contains("stroke=\"#323232\" stroke-width=\"15.5\""),
+        "{svg}"
+    );
+
+    // The pit is the one stretch of water: a ring round its centre, which is
+    // at picture (4 * 300, 2048 - 4 * 200) in metres.
+    let water = svg
+        .split("class=\"water\"")
+        .nth(1)
+        .and_then(|w| w.split(" d=\"").nth(1))
+        .and_then(|d| d.split('"').next())
+        .unwrap();
+    assert_eq!(water.matches('M').count(), 1, "{water}");
+    let (cu, cv) = (4.0 * PIT.0 as f64, 2048.0 - 4.0 * PIT.1 as f64);
+    for point in water.trim_end_matches('Z')[1..].split('L') {
+        let mut uv = point.split(' ').map(|n| n.parse::<f64>().unwrap());
+        let (u, v) = (uv.next().unwrap(), uv.next().unwrap());
+        let r = (u - cu).hypot(v - cv);
+        assert!(
+            (70.0..=95.0).contains(&r),
+            "({u}, {v}) is {r} m from the pit's centre"
+        );
+    }
+    assert!(svg.contains("class=\"band\""));
+    assert!(svg.contains("id=\"contours-index\""));
+    assert!(svg.find("id=\"terrain\"") < svg.find("id=\"roads\""));
+
+    assert!(svg.contains("id=\"industry-farm\""));
+    assert!(svg.contains("<symbol id=\"industry-icon-farm\""));
+    assert!(svg.contains("id=\"compass\""));
+    assert!(svg.find("id=\"rails\"") < svg.find("id=\"industries\""));
 }
 
 #[test]

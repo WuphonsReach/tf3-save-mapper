@@ -27,6 +27,8 @@ const CLUSTER_GAP: usize = 1 << 20;
 const MAX_ID: u32 = 1 << 24;
 const MAX_X: f64 = 40_000.0;
 const MAX_Y: f64 = 60_000.0;
+/// No street type is this wide (a runway with its shoulders is 36 m).
+const MAX_WIDTH: f32 = 500.0;
 
 /// Which kind of line an edge is: a track when one of its lanes carries trains.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,11 @@ pub struct Edge {
     /// From the lanes' transport modes; from the folder when the lanes do not
     /// read, and `Street` when that is not `street/` or `track/` either.
     pub family: Family,
+    /// The sum of the lanes' widths, sidewalks and shoulders included: the
+    /// width of the strip the game builds the edge on, metres (a small town
+    /// street 16, a track 4). The lanes repeat the street type's own, so this
+    /// is its profile width. `None` if the lanes did not read.
+    pub width: Option<f32>,
     /// Offset of the record's first byte in the stream.
     pub offset: usize,
 }
@@ -154,9 +161,9 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
     if !plausible(a, b, p0, p1, t0, t1) {
         return None;
     }
-    let (template, family) = match record_type(data, start) {
-        Some((template, family)) => (Some(template), family),
-        None => (None, Family::Street),
+    let (template, family, width) = match record_type(data, start) {
+        Some((template, family, width)) => (Some(template), family, width),
+        None => (None, Family::Street, None),
     };
     Some(Edge {
         a,
@@ -167,6 +174,7 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
         t1,
         template,
         family,
+        width,
         offset: start,
     })
 }
@@ -197,11 +205,11 @@ fn plausible(a: u32, b: u32, p0: [f32; 3], p1: [f32; 3], t0: [f32; 3], t1: [f32;
     [t0, t1].iter().all(|&t| tangent_length(t) < 5.0 * length)
 }
 
-/// The template and family of the record starting at `start`. The street
+/// The template, family and width of the record starting at `start`. The street
 /// type is the record's first `.street_template` string after the tangents,
 /// and a mod name and the base type (ending in `.street`) must follow it.
 /// No later string is tried: that would be the next record's.
-fn record_type(data: &[u8], start: usize) -> Option<(String, Family)> {
+fn record_type(data: &[u8], start: usize) -> Option<(String, Family, Option<f32>)> {
     let window = data.get(start + FIXED_BYTES..data.len().min(start + TEMPLATE_WINDOW))?;
     let suffix_at = start + FIXED_BYTES + memmem::find(window, TEMPLATE_SUFFIX)?;
     let end = suffix_at + TEMPLATE_SUFFIX.len();
@@ -232,22 +240,30 @@ fn record_type(data: &[u8], start: usize) -> Option<(String, Family)> {
         .strip_prefix("infrastructure/")
         .unwrap_or(&path)
         .to_owned();
-    let family = match lane_modes(data, start, length_at) {
-        Some(modes) if modes & TRAIN_MODES != 0 => Family::Track,
+    let lanes = read_lanes(data, start, length_at);
+    let family = match lanes {
+        Some(lanes) if lanes.modes & TRAIN_MODES != 0 => Family::Track,
         Some(_) => Family::Street,
         None if path.starts_with("infrastructure/track/") => Family::Track,
         None => Family::Street,
     };
-    Some((template, family))
+    Some((template, family, lanes.and_then(|l| l.width)))
 }
 
-/// The transport-mode bits of all the record's lanes together, or `None` when
-/// the bytes from the tangents up to the street type's length word at
-/// `type_at` do not read as: two u32, the objects on the edge
-/// (`vec<(u32, u32)>`), its decorations (`vec<(u32, u8)>`), its lanes, 9 bytes
-/// and a mod name. A lane is 21 bytes: f32 speed, width and height, u8, u32
-/// modes, f32 offset.
-fn lane_modes(data: &[u8], start: usize, type_at: usize) -> Option<u32> {
+#[derive(Clone, Copy)]
+struct Lanes {
+    /// The transport-mode bits of all lanes together.
+    modes: u32,
+    /// The lanes' widths added up, metres, if that is a sensible width.
+    width: Option<f32>,
+}
+
+/// The record's lanes, or `None` when the bytes from the tangents up to the
+/// street type's length word at `type_at` do not read as: two u32, the
+/// objects on the edge (`vec<(u32, u32)>`), its decorations (`vec<(u32,
+/// u8)>`), its lanes, 9 bytes and a mod name. A lane is 21 bytes: f32 speed,
+/// width and height, u8, u32 modes, f32 offset.
+fn read_lanes(data: &[u8], start: usize, type_at: usize) -> Option<Lanes> {
     let mut at = start + FIXED_BYTES + 8;
     let objects = u32_at(data, at)? as usize;
     if objects > 64 {
@@ -264,13 +280,17 @@ fn lane_modes(data: &[u8], start: usize, type_at: usize) -> Option<u32> {
         return None;
     }
     at += 4;
-    let mut modes = 0;
+    let (mut modes, mut width) = (0, 0.0);
     for lane in 0..lanes {
         modes |= u32_at(data, at + 21 * lane + 13)?;
+        width += f32::from_bits(u32_at(data, at + 21 * lane + 4)?);
     }
     at += 21 * lanes;
     let mod_len = u32_at(data, at + 9)? as usize;
-    (at + 13 + mod_len == type_at).then_some(modes)
+    (at + 13 + mod_len == type_at).then_some(Lanes {
+        modes,
+        width: (width.is_finite() && 0.0 < width && width < MAX_WIDTH).then_some(width),
+    })
 }
 
 /// The table is one run of records. A stray match far from it (another
@@ -407,6 +427,7 @@ mod tests {
             t1,
             template: Some("street/town/town_old_small".into()),
             family: Family::Street,
+            width: Some(16.0),
             offset: 0,
         }
     }

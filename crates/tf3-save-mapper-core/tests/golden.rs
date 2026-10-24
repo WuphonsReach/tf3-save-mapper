@@ -6,7 +6,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 
-use tf3_save_mapper_core::{container, read_edges, read_free_ids, read_header, retain_live};
+use tf3_save_mapper_core::{
+    container, industry_models, read_edges, read_free_ids, read_header, read_instances,
+    read_model_table, read_terrain, retain_live,
+};
 
 #[test]
 fn real_save_reads_and_agrees_with_itself() {
@@ -64,5 +67,41 @@ fn real_save_reads_and_agrees_with_itself() {
 
     if let Some(free) = free {
         assert!(free.len() > 1000);
+    }
+
+    // Most edges' lanes read, and their widths are a few metres to a few tens.
+    let widths: Vec<f32> = edges.iter().filter_map(|e| e.width).collect();
+    assert!(
+        widths.len() * 100 >= edges.len() * 95,
+        "{} of {} widths read",
+        widths.len(),
+        edges.len()
+    );
+    assert!(widths.iter().all(|w| (1.0..=100.0).contains(w)));
+
+    // The terrain covers the map the header gives.
+    let terrain = read_terrain(&stream).unwrap();
+    assert_eq!(terrain.size(), (header.map_width, header.map_height));
+    assert_eq!(terrain.heights.len(), terrain.columns() * terrain.rows());
+
+    // Saves with a model table: every instance read stands on (or just off) the map.
+    if let Ok(table) = read_model_table(&stream) {
+        let prefixes = ["industries/", "depots/", "stations/"];
+        let found = read_instances(&stream, &table, &prefixes);
+        let inside = found
+            .iter()
+            .filter(|i| i.x.abs() <= half.0 + 200.0 && i.y.abs() <= half.1 + 200.0)
+            .count();
+        assert!(
+            inside * 100 >= found.len() * 99,
+            "{inside} of {} on the map",
+            found.len()
+        );
+        let mains = industry_models(&table, &found);
+        let industries = found
+            .iter()
+            .filter(|i| mains.contains_key(&i.model))
+            .count();
+        eprintln!("{} instances, {industries} industries", found.len());
     }
 }

@@ -1,6 +1,6 @@
 # tf3-save-mapper
 
-Read-only command-line tool that draws an SVG map of a Transport Fever 3 `.sav`. Unofficial fan tool, licensed MIT OR Apache-2.0. Rust, as a Cargo workspace: `tf3-save-mapper-core` (container, header, edges, instances, terrain, SVG writer; no CLI code) and the binary crate (arguments, file output). The binary is `tf3map`, built from the `tf3-save-mapper` crate in `crates/tf3-save-mapper`; the core is `crates/tf3-save-mapper-core`. Both are `publish = false` until the user decides on crates.io.
+Read-only command-line tool that draws an SVG map of a Transport Fever 3 `.sav`. Unofficial fan tool, licensed MIT OR Apache-2.0. Rust, as a Cargo workspace: `tf3-save-mapper-core` (container, header, edges, instances, terrain and contours, install reader, SVG writer with a module per layer; no CLI code) and the binary crate (arguments, file output). The binary is `tf3map`, built from the `tf3-save-mapper` crate in `crates/tf3-save-mapper`; the core is `crates/tf3-save-mapper-core`. Both are `publish = false` until the user decides on crates.io.
 
 Positioning: use a `tf3-` name; write "Transport Fever 3" only in the description and topics. The README carries an "unofficial, not affiliated with Urban Games" line.
 
@@ -33,6 +33,8 @@ Positioning: use a `tf3-` name; write "Transport Fever 3" only in the descriptio
 
 - Never read, `strings`, dump or grep the game's native binaries: the `TransportFever3` executable, the bundled `.so` libraries, `model_editor/ModelEditor`.
 - `base/content/` archives may be read for facts only, under the conditions in `tf3-save-format/CLAUDE.md` ("Game install"): no republishing string tables, no fonts, no music, no meshes or textures, and never bundle base data in the tool.
+- `tf3map` reads the install at run time (`install.rs`: station `.mdl` boxes, depot and industry script ground faces) and keeps nothing. Tests never need an install.
+- `.claude/hooks/tf3-install-guard.py` (copied from tf3-save-format) blocks the common ways of reading the binaries. It also fires on any command that mentions the install by name and pipes through `grep` without `-I`; put such text in a file or use the Edit tool.
 
 ## Dependencies
 

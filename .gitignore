@@ -21,6 +21,8 @@ previews/
 # diagrams under docs/images/ are tracked.
 *.svg
 !docs/images/*.svg
+# Our own pictograms, drawn in tf3-save-format, embedded in the tool.
+!crates/tf3-save-mapper-core/icons/**/*.svg
 out/
 output/
 
