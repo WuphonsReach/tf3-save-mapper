@@ -8,16 +8,53 @@ pub struct EdgeSpec {
     pub b: u32,
     pub p0: [f32; 3],
     pub p1: [f32; 3],
+    /// What the reader should give: the type's path without
+    /// `.street_template`, and without `infrastructure/` for `street/` and
+    /// `track/` types, which are written under it.
     pub template: &'static str,
+    /// The transport-mode word of each lane.
+    pub lanes: &'static [u32],
+    /// The mod that brings the type, empty for the game's own.
+    pub mod_name: &'static str,
+    /// How many objects and decorations stand on the edge.
+    pub objects: u32,
+    pub decorations: u32,
 }
+
+impl Default for EdgeSpec {
+    fn default() -> Self {
+        EdgeSpec {
+            a: 1,
+            b: 2,
+            p0: [0.0; 3],
+            p1: [50.0, 0.0, 0.0],
+            template: "street/town/town_old_small",
+            lanes: ROAD_LANES,
+            mod_name: "",
+            objects: 0,
+            decorations: 0,
+        }
+    }
+}
+
+/// Sidewalk, two car lanes, sidewalk.
+pub const ROAD_LANES: &[u32] = &[0x03, 0x1c, 0x1c, 0x03];
+/// Two track lanes with catenary: ELECTRIC_TRAIN and TRAIN bits among others.
+pub const TRACK_LANES: &[u32] = &[0xc180, 0xc180];
 
 pub const MAP_WIDTH: u32 = 4096;
 pub const MAP_HEIGHT: u32 = 2048;
 pub const SEED: &str = "synthetic seed";
 pub const CLIMATE: &str = "::/climates/temperate/temperate.clima";
-/// The free-id list holds these ids: a run of 1500 ascending ids.
+/// The free-id list holds a head, a run of 1500 ascending ids and a tail.
 pub const FREE_RUN_START: u32 = 10_000;
 pub const FREE_RUN_LEN: u32 = 1500;
+pub const FREE_HEAD: [u32; 3] = [500_000, 400_000, 300_000];
+/// Unsorted ids after the run, one past 1,000,000 as in long games.
+pub const FREE_TAIL: [u32; 3] = [800, 2_000_000, 700];
+/// Words before the list's count word. The first is a count word too and
+/// reaches the same end, but the list's own is the nearer one.
+pub const FREE_DECOY: [u32; 8] = [1514, 21, 22, 23, 24, 25, 26, 27];
 
 /// The game's trailing empty zstd frame.
 pub const EMPTY_FRAME: [u8; 9] = [0x28, 0xb5, 0x2f, 0xfd, 0x20, 0x00, 0x01, 0x00, 0x00];
@@ -92,7 +129,8 @@ pub fn header(version: u32) -> Vec<u8> {
     b
 }
 
-/// One record of the street-edge table; 291 bytes for the templates used here.
+/// One record of the street-edge table, in the layout of `docs/road-network.md`;
+/// 284 bytes for a game street type with four lanes and nothing on it.
 pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
     let mut b = Vec::new();
     u32s(&mut b, &[e.a, e.b]);
@@ -102,12 +140,35 @@ pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
             b.extend_from_slice(&c.to_le_bytes());
         }
     }
-    b.extend_from_slice(&[0x11; 124]); // lane data
-    string(
-        &mut b,
-        &format!("infrastructure/{}.street_template", e.template),
-    );
-    u32s(&mut b, &[0]);
+    u32s(&mut b, &[0, u32::MAX]);
+    u32s(&mut b, &[e.objects]);
+    for i in 0..e.objects {
+        u32s(&mut b, &[e.a * 10 + i, 0x5a]);
+    }
+    u32s(&mut b, &[e.decorations]);
+    for i in 0..e.decorations {
+        u32s(&mut b, &[i + 3]);
+        b.push(1);
+    }
+    u32s(&mut b, &[e.lanes.len() as u32]);
+    for (i, modes) in e.lanes.iter().enumerate() {
+        let offset = (i as f32 - 1.5) * 3.25;
+        for f in [13.89f32, 3.5 + i as f32 * 0.25, 0.375] {
+            b.extend_from_slice(&f.to_le_bytes());
+        }
+        b.push(u8::from(i % 2 == 0));
+        u32s(&mut b, &[*modes]);
+        b.extend_from_slice(&offset.to_le_bytes());
+    }
+    b.extend_from_slice(&[1, 0, 0, 0, 0x7f, 0, 0, 0, 2]); // not decoded
+    string(&mut b, e.mod_name);
+    let path = if e.template.starts_with("street/") || e.template.starts_with("track/") {
+        format!("infrastructure/{}", e.template)
+    } else {
+        e.template.to_owned()
+    };
+    string(&mut b, &format!("{path}.street_template"));
+    string(&mut b, "");
     string(&mut b, "infrastructure/street/town/town_old.street");
     b
 }
@@ -132,17 +193,23 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
         p0: [0.0, 0.0, 0.0],
         p1: [50.0, 0.0, 0.0],
         template: "street/decoy/decoy",
+        ..EdgeSpec::default()
     }));
     // The free-id list: a count word, a head that breaks the ascending run,
-    // then the long run, then words no id can be.
+    // the long run and some unsorted ids; then its trailer (2, a u32, a str
+    // of digits) and words no id can be.
     while !s.len().is_multiple_of(4) {
         s.push(0);
     }
-    let head = [500_000u32, 400_000, 300_000];
-    u32s(&mut s, &[0, 0, head.len() as u32 + FREE_RUN_LEN]);
-    u32s(&mut s, &head);
+    u32s(&mut s, &FREE_DECOY);
+    let count = FREE_HEAD.len() as u32 + FREE_RUN_LEN + FREE_TAIL.len() as u32;
+    u32s(&mut s, &[count]);
+    u32s(&mut s, &FREE_HEAD);
     let run: Vec<u32> = (FREE_RUN_START..FREE_RUN_START + FREE_RUN_LEN).collect();
     u32s(&mut s, &run);
+    u32s(&mut s, &FREE_TAIL);
+    u32s(&mut s, &[2, 1]);
+    string(&mut s, "1729");
     u32s(&mut s, &[u32::MAX; 4]);
     s
 }
