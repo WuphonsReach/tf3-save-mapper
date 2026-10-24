@@ -14,7 +14,7 @@ Positioning: use a `tf3-` name; write "Transport Fever 3" only in the descriptio
 
 ## Rules for what goes in
 
-- Never commit `.sav` files, decompressed streams, or previews or maps of other people's saves. `.gitignore` blocks the common forms (including `*.svg` outside `docs/images/`). Name files in `git add`; never `git add -A` or `git add .`.
+- Never commit `.sav` files, decompressed streams, or previews or maps of other people's saves. `.gitignore` blocks the common forms (including `*.svg` and `*.png` outside `docs/images/`). Name files in `git add`; never `git add -A` or `git add .`.
 - Never write or modify a `.sav`.
 - Saves hold other people's local details. Company names default to the account display name; a mod's Lua error text can contain its full install path with the account name. Output, docs, tests and commit messages must mask them: `<name> Transport`, `<path>/mod.io/10640/mods/<id>/...`.
 - Cite catalog saves by mod.io id only. Tests committed to the repo use a hand-built minimal synthetic stream. A golden test against real saves reads the path from an environment variable and skips when it is unset.
