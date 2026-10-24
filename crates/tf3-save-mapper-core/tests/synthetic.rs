@@ -6,6 +6,7 @@ use common::{
     EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
     TRACK_LANES,
 };
+use tf3_save_mapper_core::svg::{GridLines, GridStep};
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, industry_models, read_edges, read_free_ids, read_header,
     read_instances, read_model_table, read_terrain, retain_live, write_svg,
@@ -263,6 +264,65 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
     assert!(svg.contains("<symbol id=\"industry-icon-farm\""));
     assert!(svg.contains("id=\"compass\""));
     assert!(svg.find("id=\"rails\"") < svg.find("id=\"industries\""));
+}
+
+/// The synthetic save drawn with `options`: its live edges, the terrain and the farm.
+fn render(options: &SvgOptions) -> String {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let mut found = read_edges(&stream).unwrap();
+    retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    let table = read_model_table(&stream).unwrap();
+    let instances = read_instances(&stream, &table, &["industries/"]);
+    let mains = industry_models(&table, &instances);
+    let layers = Layers {
+        terrain: Some(read_terrain(&stream).unwrap()),
+        industries: instances
+            .iter()
+            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .collect(),
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &found, &layers, options).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn the_default_grid_marks_every_kilometre() {
+    let svg = render(&SvgOptions::default());
+    // 4096 x 2048 m: a third of 2048 is 682 m, but a whole map gets 1000 m at least.
+    assert!(svg.contains("inkscape:label=\"Grid 1000 m\""), "{svg}");
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("terrain") < at("grid") && at("grid") < at("roads"));
+    assert!(at("industries") < at("grid-labels") && at("grid-labels") < at("compass"));
+    // x = 0 runs down the middle of the picture, dotted.
+    assert!(svg.contains("<path d=\"M2048 0V2048\" fill=\"none\" stroke=\"#6b3fa0\""));
+    assert!(svg.contains(">x -1000</text>") && svg.contains(">y -1000</text>"));
+
+    let off = render(&SvgOptions {
+        grid: GridStep::Off,
+        ..SvgOptions::default()
+    });
+    assert!(!off.contains("id=\"grid"));
+}
+
+#[test]
+fn a_finer_grid_has_minor_marks_under_the_kilometre_ones() {
+    let svg = render(&SvgOptions {
+        grid: GridStep::Every(250),
+        grid_lines: GridLines::Dots,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("Grid 250 m"));
+    let minor = svg
+        .split("id=\"grid-minor\"")
+        .nth(1)
+        .and_then(|s| s.split("id=\"grid-major\"").next())
+        .unwrap();
+    // Minor lines are the multiples of 250 m that are not of 1000 m: 12 up, 6 across.
+    assert_eq!(minor.matches("stroke-dashoffset").count(), 18, "{minor}");
+    assert!(svg.contains(">x 250</text>"));
 }
 
 #[test]

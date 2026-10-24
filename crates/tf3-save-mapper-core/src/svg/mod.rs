@@ -5,11 +5,12 @@
 //! own frame, `docs/compass.md` in tf3-save-format). The `viewBox` is the map in
 //! metres, so widths are in metres too and scale with the picture. Layers are
 //! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
-//! `stations`, `roads` and `rails` (each with one sublayer per street or
-//! track type), the depot layers, `stations-street`, `industries` and
-//! `compass`.
+//! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
+//! or track type), the depot layers, `stations-street`, `industries`,
+//! `grid-labels` and `compass`.
 
 mod depots;
+mod grid;
 mod industries;
 mod rose;
 mod stations;
@@ -25,6 +26,7 @@ use crate::install::{DepotSpec, Polygon, Rect};
 use crate::instances::Instance;
 use crate::terrain::Terrain;
 
+pub use grid::{GridLines, GridStep};
 pub use industries::faces_with_measured;
 pub use stations::is_station_piece;
 
@@ -58,6 +60,12 @@ pub struct SvgOptions {
     pub bands: bool,
     /// Draw a compass rose in the lower right corner.
     pub rose: bool,
+    /// The grid of map coordinates.
+    pub grid: GridStep,
+    /// Which grid lines are drawn besides the crosses.
+    pub grid_lines: GridLines,
+    /// Metres between the dots of a dotted minor grid line.
+    pub grid_dot_step: f64,
 }
 
 impl Default for SvgOptions {
@@ -71,6 +79,9 @@ impl Default for SvgOptions {
             index_every: 5,
             bands: true,
             rose: true,
+            grid: GridStep::Auto,
+            grid_lines: GridLines::Auto,
+            grid_dot_step: 25.0,
         }
     }
 }
@@ -110,6 +121,44 @@ impl Picture {
     }
 }
 
+/// The part of the map the picture shows: a box in map metres, and the
+/// rectangle it fills in the picture.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct View {
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+    /// The rectangle's top-left corner and size, picture metres.
+    u0: f64,
+    v0: f64,
+    width: f64,
+    height: f64,
+}
+
+impl View {
+    /// The view of the box `(x_min, x_max, y_min, y_max)`.
+    fn new(picture: &Picture, (x_min, x_max, y_min, y_max): (f64, f64, f64, f64)) -> View {
+        let (a, b) = (picture.pic((x_min, y_max)), picture.pic((x_max, y_min)));
+        View {
+            x_min,
+            x_max,
+            y_min,
+            y_max,
+            u0: a.0.min(b.0),
+            v0: a.1.min(b.1),
+            width: (a.0 - b.0).abs(),
+            height: (a.1 - b.1).abs(),
+        }
+    }
+
+    /// The whole map.
+    fn whole(picture: &Picture, header: &Header) -> View {
+        let (w, h) = (f64::from(header.map_width), f64::from(header.map_height));
+        View::new(picture, (-w / 2.0, w / 2.0, -h / 2.0, h / 2.0))
+    }
+}
+
 /// The opening tag of a layer: a group Inkscape shows as one.
 fn layer(id: &str, label: &str, attrs: &str) -> String {
     format!(
@@ -133,14 +182,18 @@ pub fn write_svg(
         width: w,
         height: h,
     };
+    let view = View::whole(&picture, header);
+    let (w, h) = (view.width, view.height);
 
     writeln!(
         out,
         "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" \
          xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" \
-         width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\">",
+         width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\">",
         (w / options.metres_per_pixel).ceil(),
         (h / options.metres_per_pixel).ceil(),
+        view.u0,
+        view.v0,
         w,
         h
     )?;
@@ -148,12 +201,37 @@ pub fn write_svg(
     writeln!(out, "<desc>{}</desc>", escape(&description(header)))?;
     writeln!(
         out,
-        "{}<rect width=\"{w}\" height=\"{h}\" fill=\"{BACKGROUND_COLOUR}\"/></g>",
-        layer("background", "Background", "")
+        "{}<rect{} width=\"{w}\" height=\"{h}\" fill=\"{BACKGROUND_COLOUR}\"/></g>",
+        layer("background", "Background", ""),
+        corner_attrs(&view)
     )?;
     if let Some(t) = &layers.terrain {
         terrain::write(out, t, &picture, options)?;
     }
+    let step = match options.grid {
+        GridStep::Off => None,
+        GridStep::Auto => {
+            let step = grid::auto_step(w.min(h), false);
+            Some((step, step))
+        }
+        GridStep::Every(step) => Some((step, grid::MAJOR)),
+    };
+    let grid_labels = match step {
+        Some((step, major)) => {
+            let (marks, labels) = grid::layers(
+                &picture,
+                &view,
+                options.metres_per_pixel,
+                step,
+                major,
+                options.grid_lines,
+                options.grid_dot_step,
+            );
+            write_lines(out, &marks)?;
+            labels
+        }
+        None => Vec::new(),
+    };
     let (stations_under, stations_over) =
         stations::layers(&picture, &layers.stations, &layers.station_boxes);
     write_lines(out, &stations_under)?;
@@ -167,8 +245,9 @@ pub fn write_svg(
         out,
         &industries::layers(&picture, &layers.industries, &layers.industry_faces),
     )?;
+    write_lines(out, &grid_labels)?;
     if options.rose {
-        write_lines(out, &rose::compass(&picture))?;
+        write_lines(out, &rose::compass(&picture, &view))?;
     }
     writeln!(out, "</svg>")
 }
@@ -287,6 +366,33 @@ fn description(header: &Header) -> String {
 fn fmt1(v: f64) -> String {
     let s = format!("{v:.1}");
     if s == "-0.0" { "0.0".into() } else { s }
+}
+
+/// ` x="..." y="..."` for an element at the view's top-left corner, or
+/// nothing when that is the picture's origin.
+fn corner_attrs(view: &View) -> String {
+    if view.u0 == 0.0 && view.v0 == 0.0 {
+        String::new()
+    } else {
+        format!(" x=\"{}\" y=\"{}\"", fmt_g(view.u0), fmt_g(view.v0))
+    }
+}
+
+/// Six significant digits without trailing zeros, as Python's `%g` writes
+/// the numbers of the prototype (no exponent: picture metres never need one).
+fn fmt_g(v: f64) -> String {
+    if v == 0.0 || !v.is_finite() {
+        return "0".into();
+    }
+    let exponent = v.abs().log10().floor() as i32;
+    let decimals = (5 - exponent).max(0) as usize;
+    let s = format!("{v:.decimals$}");
+    let s = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        &s
+    };
+    if s == "-0" { "0".into() } else { s.into() }
 }
 
 /// Two decimals, and no `-0.00`.
@@ -499,5 +605,11 @@ mod tests {
         assert_eq!(fmt_width(4.25), "4.25");
         assert_eq!(fmt_width(2.5), "2.5");
         assert_eq!(safe_id("a b/c..d"), "a_b_c_d");
+        assert_eq!(fmt_g(2048.0), "2048");
+        assert_eq!(fmt_g(12.5), "12.5");
+        assert_eq!(fmt_g(1.0 / 3.0), "0.333333");
+        assert_eq!(fmt_g(123456.78), "123457");
+        assert_eq!(fmt_g(-0.25), "-0.25");
+        assert_eq!(fmt_g(-0.0), "0");
     }
 }

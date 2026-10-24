@@ -3,16 +3,16 @@
 //! three arms half as long with E, S and W at their ends, the letters upright.
 //! The shape is that of `tools/icons/compass_rose.svg` in tf3-save-format.
 
-use super::{Picture, fmt1, fmt2, layer};
+use super::{Picture, View, fmt1, fmt2, layer};
 
 /// Metres across the circle, at most an eighth of the picture's short side.
 const DIAMETER: f64 = 250.0;
 
-pub(super) fn compass(picture: &Picture) -> Vec<String> {
-    let (w, h) = (picture.width, picture.height);
+pub(super) fn compass(picture: &Picture, view: &View) -> Vec<String> {
+    let (w, h) = (view.width, view.height);
     let r = DIAMETER.min(w.min(h) / 8.0) / 2.0;
     let gap = 0.15 * r;
-    let (cx, cy) = (w - gap - r, h - gap - r);
+    let (cx, cy) = (view.u0 + w - gap - r, view.v0 + h - gap - r);
     let k = 0.0495 * r; // the icon's unit: its arrow is 15 k long
     let north = picture.vec((0.0, 1.0));
     let east = picture.vec((1.0, 0.0));
@@ -72,10 +72,11 @@ mod tests {
 
     #[test]
     fn the_rose_sits_in_the_lower_right_with_north_up() {
-        let lines = compass(&Picture {
+        let p = Picture {
             width: 4096.0,
             height: 2048.0,
-        });
+        };
+        let lines = compass(&p, &View::new(&p, (-2048.0, 2048.0, -1024.0, 1024.0)));
         let text = lines.join("\n");
         // 250 m across, 18.75 m from the corner.
         assert!(
@@ -89,11 +90,11 @@ mod tests {
 
     #[test]
     fn a_small_picture_gets_a_small_rose() {
-        let text = compass(&Picture {
+        let p = Picture {
             width: 800.0,
             height: 400.0,
-        })
-        .join("");
+        };
+        let text = compass(&p, &View::new(&p, (-400.0, 400.0, -200.0, 200.0))).join("");
         assert!(text.contains("r=\"25.0\""), "{text}");
     }
 }

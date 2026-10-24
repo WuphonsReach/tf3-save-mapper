@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
-use tf3_save_mapper_core::svg::{faces_with_measured, is_station_piece};
+use tf3_save_mapper_core::svg::{GridLines, GridStep, faces_with_measured, is_station_piece};
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, industry_models,
     read_edges, read_free_ids, read_header, read_instances, read_model_table, read_terrain,
@@ -29,6 +29,14 @@ Options:
       --no-depots     leave out the depots and maintenance buildings
       --no-stations   leave out the stations
       --no-rose       leave out the compass rose
+      --grid N        marks every N metres of map x and y, the 1000 m ones major (default: major marks
+                      only, every third of the shorter side rounded down to 1, 2 or 5 x a power of ten,
+                      at least 1000 m on a whole map)
+      --no-grid       leave out the grid
+      --grid-lines L  auto (default: crosses and dotted major lines, crosses only at 1 m per pixel or
+                      finer), none (crosses only), dots or faint (also the minor lines, as sparse dots
+                      or faint solid lines)
+      --grid-dot-step M  metres between the dots of --grid-lines dots (default 25, at least 10 pixels)
       --min-width M   draw no road or track narrower than M metres (default 0, the real widths)
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
@@ -65,6 +73,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut keep_dead = false;
     let mut game = None;
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
+    let (mut grid, mut no_grid) = (None, false);
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
@@ -87,6 +96,10 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--no-depots" => depots = false,
             "--no-stations" => stations = false,
             "--no-rose" => options.rose = false,
+            "--grid" => grid = Some(grid_step(&value("--grid")?)?),
+            "--no-grid" => no_grid = true,
+            "--grid-lines" => options.grid_lines = grid_lines(&value("--grid-lines")?)?,
+            "--grid-dot-step" => options.grid_dot_step = width(&value("--grid-dot-step")?)?,
             "--keep-dead" => keep_dead = true,
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown option {flag}"));
@@ -96,6 +109,15 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
     }
     let save = save.ok_or("no save given (try --help)")?;
+    options.grid = match (grid, no_grid) {
+        (Some(_), true) => return Err("--no-grid and --grid exclude each other".into()),
+        (Some(step), false) => GridStep::Every(step),
+        (None, true) if options.grid_lines != GridLines::Auto => {
+            return Err("--grid-lines needs a grid".into());
+        }
+        (None, true) => GridStep::Off,
+        (None, false) => GridStep::Auto,
+    };
     // From the whole name: `Map v1.5.sav` gives `Map v1.5.svg`, not `Map v1.svg`.
     let output = output
         .unwrap_or_else(|| Path::new(save.file_name().unwrap_or_default()).with_extension("svg"));
@@ -120,6 +142,30 @@ fn width(text: &str) -> Result<f64, String> {
     }
 }
 
+/// A grid step: a whole number of metres, 1 or more.
+fn grid_step(text: &str) -> Result<u32, String> {
+    match text.parse::<u32>() {
+        Ok(n) if n >= 1 => Ok(n),
+        _ => Err(format!(
+            "--grid wants a whole number of metres, 1 or more, not {text:?}"
+        )),
+    }
+}
+
+fn grid_lines(text: &str) -> Result<GridLines, String> {
+    Ok(match text {
+        "auto" => GridLines::Auto,
+        "none" => GridLines::None,
+        "dots" => GridLines::Dots,
+        "faint" => GridLines::Faint,
+        _ => {
+            return Err(format!(
+                "--grid-lines wants auto, none, dots or faint, not {text:?}"
+            ));
+        }
+    })
+}
+
 /// A number of metres, at least `least`.
 fn metres(text: &str, least: f64) -> Result<f64, String> {
     match text.parse::<f64>() {
@@ -138,6 +184,15 @@ fn run(args: Args) -> Result<(), String> {
     };
     if names_a_save(&args.output) || same_file {
         return Err("the output must not be a .sav file".into());
+    }
+
+    let o = &args.options;
+    let fewest = 10.0 * o.metres_per_pixel;
+    if o.grid_lines == GridLines::Dots && o.grid_dot_step < fewest {
+        eprintln!(
+            "--grid-dot-step {} is under 10 pixels at {} m per pixel; dots will be {fewest} m apart",
+            o.grid_dot_step, o.metres_per_pixel
+        );
     }
 
     let file = File::open(&args.save).map_err(|e| format!("cannot open the save: {e}"))?;
@@ -410,6 +465,22 @@ mod tests {
         assert_eq!(a.options.contour_step, 10.0);
         assert!(!a.stations && !a.options.rose);
         assert!(a.terrain && a.industries && a.depots && a.options.bands);
+        assert_eq!(a.options.grid, GridStep::Auto, "a grid by default");
+    }
+
+    #[test]
+    fn grid_options_are_read() {
+        let a = run_args(&["s.sav", "--grid", "250", "--grid-lines", "dots"]);
+        assert_eq!(a.options.grid, GridStep::Every(250));
+        assert_eq!(a.options.grid_lines, GridLines::Dots);
+        let a = run_args(&["s.sav", "--no-grid", "--grid-dot-step", "40"]);
+        assert_eq!(a.options.grid, GridStep::Off);
+        assert_eq!(a.options.grid_dot_step, 40.0);
+        assert!(parse(&["s.sav", "--grid", "0"]).is_err(), "too fine");
+        assert!(parse(&["s.sav", "--grid", "2.5"]).is_err(), "not whole");
+        assert!(parse(&["s.sav", "--grid", "100", "--no-grid"]).is_err());
+        assert!(parse(&["s.sav", "--no-grid", "--grid-lines", "faint"]).is_err());
+        assert!(parse(&["s.sav", "--grid-lines", "solid"]).is_err());
     }
 
     #[test]

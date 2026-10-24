@@ -13,6 +13,7 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Stations**: the docks, platforms and buildings of water, rail and street stations, with a border round each bus, tram or cargo station and an anchor on each ship landing.
 - **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier.
 - **Industries**: each industry's footprint, and a badge with its icon.
+- A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
 - A **compass rose** in the lower right corner.
 
 The shapes of stations, depots and industry footprints come from the game's own files, read from your install when the tool runs (see below). Without an install the map still has the terrain, the network and the industry badges.
@@ -34,6 +35,7 @@ Options (`tf3map --help` lists them all):
 - `--min-width M` draws no road or track narrower than M metres, so tracks stay visible on a whole-map view.
 - `--road-width M` and `--rail-width M` set the width of an edge whose lanes cannot be read (default 16 and 4).
 - `--keep-dead` also draws roads the game deleted but left in the save.
+- `--grid N` puts marks every N metres, the 1000 m ones major; by default there are major marks only, about a third of the shorter side apart (1000 m at least on a whole map). `--no-grid` leaves the grid out, `--grid-lines auto|none|dots|faint` chooses which lines are drawn besides the crosses and `--grid-dot-step M` spaces the dots.
 
 A save is read, never written, and the output may not be a `.sav`. A 390 MB save takes about three seconds and 1.7 GB of memory, because the whole decompressed stream is held.
 
