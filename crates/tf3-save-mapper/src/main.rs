@@ -99,6 +99,7 @@ const SVG_ONLY: &[&str] = &[
     "--name",
     "--label",
     "--edge-ids",
+    "--coverage",
 ];
 
 struct Args {
@@ -628,16 +629,19 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
 /// True when writing to `path` would land on a `.sav`. Windows drops trailing
 /// dots and spaces from a name and reads `name:stream` as a stream of `name`,
 /// so `b.sav.`, `b.sav ` and `b.sav::$DATA` all write to `b.sav` there. They
-/// are refused on every system.
+/// are refused on every system. Elsewhere a colon is an ordinary character, so
+/// the name is also tried whole: `old:game.sav` is a save there.
 fn names_a_save(path: &Path) -> bool {
     let Some(name) = path.file_name() else {
         return false;
     };
     let name = name.to_string_lossy();
-    let name = name.split(':').next().unwrap_or_default();
-    Path::new(name.trim_end_matches(['.', ' ']))
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("sav"))
+    let is_save = |name: &str| {
+        Path::new(name.trim_end_matches(['.', ' ']))
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("sav"))
+    };
+    is_save(&name) || is_save(name.split(':').next().unwrap_or_default())
 }
 
 /// The `attempt`th name tried for the temporary file beside `output`. The
@@ -755,6 +759,9 @@ mod tests {
             "b.sav. .",
             "b.sav::$DATA",
             "b.sav:stream",
+            // A colon is an ordinary character outside Windows.
+            "old:game.sav",
+            "a:b.SAV",
         ] {
             assert!(names_a_save(Path::new(name)), "{name:?}");
         }
@@ -971,6 +978,7 @@ mod tests {
             &["s.sav", "--png", "--grid", "100"],
             &["s.sav", "--png", "--rose", "upper-left"],
             &["s.sav", "--png", "--zoom", "2"],
+            &["s.sav", "--png", "--coverage"],
             &["s.sav", "--png", "--contour", "10"],
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
