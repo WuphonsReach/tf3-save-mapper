@@ -61,6 +61,26 @@ cargo build --release
 
 The binary is `target/release/tf3map`.
 
+## Speed
+
+Measured on 2026-10-24, release build, one machine, one save at a time. `tf3map` ran with its default layers (median of three runs); the Python prototype's `terrain_map.py` ran once with `--depots --stations`. Wall-clock time and peak memory. Saves are catalog saves, named by mod.io id.
+
+| mod.io id | Edges (road / track) | `tf3map` | Python prototype | Faster by |
+|---|---|---|---|---|
+| 6397878 | 1,109 / 2,203 | 0.34 s, 222 MB | 44 s, 605 MB | 130× |
+| 6418734 | 1,252 / 0 | 0.36 s, 212 MB | 43 s, 578 MB | 118× |
+| 6422263 | 3,909 / 5,397 | 1.2 s, 654 MB | 79 s, 1.8 GB | 66× |
+| 6425796 | 5,176 / 7,152 | 1.8 s, 844 MB | 118 s, 2.4 GB | 67× |
+| 6431760 | 5,295 / 8,217 | 1.9 s, 944 MB | 127 s, 2.8 GB | 67× |
+| 6417707 | 8,100 / 13,009 | 1.9 s, 986 MB | 142 s, 3.1 GB | 74× |
+| 6425884 | 8,849 / 8,317 | 2.1 s, 1.0 GB | 142 s, 3.2 GB | 67× |
+| 6419666 | 7,896 / 10,665 | 2.2 s, 1.2 GB | 241 s, 3.6 GB | 108× |
+| 6432180 | 8,193 / 7,487 | 2.8 s, 1.5 GB | 310 s, 4.1 GB | 109× |
+
+The busy saves (over 1,000 vehicles, 120 to 190 industries, rail, ships and aircraft) take 1 to 3 seconds. Time and memory grow with the size of the save's data stream, not only with the number of edges.
+
+A further sample of 69 catalog saves (every third entry of a list of 208) ran without a failure: median 0.7 s and 370 MB, slowest 2.9 s and 1.6 GB.
+
 ## How it relates to other projects
 
 - The `.sav` layout comes from [tf3-save-format](https://github.com/WuphonsReach/tf3-save-format), a set of notes on the format. This tool has its own small reader and does not depend on any other save library.
