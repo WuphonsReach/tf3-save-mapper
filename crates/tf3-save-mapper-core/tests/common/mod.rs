@@ -1,6 +1,7 @@
 //! A hand-built stream with the structures the reader looks for, and nothing
 //! from a real save: a header, a model table, the terrain, a street-edge
-//! table, a decoy, model instances and a free-id list.
+//! table, a decoy, model instances (an industry and two vehicles) and a
+//! free-id list.
 
 #![allow(dead_code)]
 
@@ -69,6 +70,13 @@ pub const PIT: (usize, usize, usize) = (300, 200, 20);
 pub const FARM_ID: u32 = 120;
 pub const FARM_AT: (f32, f32) = (-500.0, 300.0);
 pub const FARM_FACING: (f32, f32) = (0.6, 0.8);
+/// A bus near the first edges, and a wagon; model ids, positions and facings.
+pub const BUS_ID: u32 = 121;
+pub const BUS_AT: (f32, f32) = (-905.5, 452.25);
+pub const BUS_FACING: (f32, f32) = (0.28, -0.96);
+pub const WAGGON_ID: u32 = 122;
+pub const WAGGON_AT: (f32, f32) = (-850.75, 401.5);
+pub const WAGGON_FACING: (f32, f32) = (-0.8, 0.6);
 
 /// The height value at grid column `c`, row `r` of the stitched grid.
 pub fn height(c: usize, r: usize) -> u16 {
@@ -197,13 +205,15 @@ pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
 }
 
 /// The model table: 120 animals first, as the game's table sorts them, then
-/// the farm's main model and a mod's model whose id skips ahead.
+/// the farm's main model, a bus, a wagon and a mod's model whose id skips ahead.
 pub fn model_table() -> Vec<u8> {
     let mut b = Vec::new();
     let mut paths: Vec<String> = (0..FARM_ID)
         .map(|i| format!("animal/beast_{i}.mdl"))
         .collect();
     paths.push("industries/farm/farm_sm.mdl".into());
+    paths.push("vehicle/bus/town_bus/town_bus.mdl".into());
+    paths.push("vehicle/waggon/box/box_waggon.mdl".into());
     paths.push("assets/some_mod/barn.mdl".into());
     u32s(&mut b, &[paths.len() as u32]);
     for (i, path) in paths.iter().enumerate() {
@@ -278,6 +288,9 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     }));
     s.extend_from_slice(&[0x11; 13]);
     s.extend_from_slice(&instance(FARM_ID, FARM_AT, FARM_FACING));
+    s.extend_from_slice(&[0x22; 9]);
+    s.extend_from_slice(&instance(BUS_ID, BUS_AT, BUS_FACING));
+    s.extend_from_slice(&instance(WAGGON_ID, WAGGON_AT, WAGGON_FACING));
     // The free-id list: a count word, a head that breaks the ascending run,
     // the long run and some unsorted ids; then its trailer (2, a u32, a str
     // of digits) and words no id can be.

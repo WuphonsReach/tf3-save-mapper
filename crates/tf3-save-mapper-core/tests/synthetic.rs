@@ -3,7 +3,7 @@
 mod common;
 
 use common::{
-    EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
+    BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
     TRACK_LANES,
 };
 use tf3_save_mapper_core::svg::{Crop, GridLines, GridStep};
@@ -400,6 +400,88 @@ fn a_crop_off_the_map_is_refused() {
         edge.bounds(&header),
         Some((1900.0, 2048.0, -1024.0, -900.0))
     );
+}
+
+/// The synthetic save's vehicles drawn with `options`, the ones in `names` named.
+fn render_vehicles(options: &SvgOptions, names: &[(usize, &str)]) -> String {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let table = read_model_table(&stream).unwrap();
+    let layers = Layers {
+        vehicles: read_instances(&stream, &table, &["vehicle/"]),
+        vehicle_names: names.iter().map(|&(s, n)| (s, n.to_owned())).collect(),
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &[], &layers, options).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn vehicles_are_found_and_drawn_by_folder() {
+    let stream = common::stream(&edges());
+    let table = read_model_table(&stream).unwrap();
+    let found = read_instances(&stream, &table, &["vehicle/"]);
+    let models: Vec<(&str, usize)> = found.iter().map(|i| (i.model.as_str(), i.slot)).collect();
+    assert_eq!(
+        models,
+        [
+            ("vehicle/bus/town_bus/town_bus.mdl", 1),
+            ("vehicle/waggon/box/box_waggon.mdl", 2)
+        ]
+    );
+    assert_eq!(
+        (found[0].x, found[0].y),
+        (f64::from(BUS_AT.0), f64::from(BUS_AT.1))
+    );
+
+    let svg = render_vehicles(
+        &SvgOptions::default(),
+        &[(1, "Road Vehicle 31"), (7, "nobody")],
+    );
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("vehicles-bus") < at("vehicles-train"), "{svg}");
+    assert!(at("vehicles") < at("grid-labels"));
+    assert!(svg.contains("class=\"vehicle bus\" data-slot=\"1\""));
+    assert!(svg.contains("class=\"vehicle waggon\" data-slot=\"2\""));
+    // At 8 m per pixel the name is 36 m high; the bus faces south-south-east.
+    assert!(svg.contains("font-size=\"36\""));
+    assert!(svg.contains(">RV31</text>"), "{svg}");
+    assert!(svg.contains("rotate(73.7)"), "{svg}");
+    assert_eq!(
+        vehicle_layer(&svg).matches("<text").count(),
+        1,
+        "slot 7 is no vehicle"
+    );
+}
+
+/// The `vehicles` layer's text.
+fn vehicle_layer(svg: &str) -> &str {
+    let start = svg.find("id=\"vehicles\"").unwrap();
+    let end = svg.find("id=\"grid-labels\"").unwrap();
+    &svg[start..end]
+}
+
+#[test]
+fn a_crop_draws_only_the_vehicles_in_it() {
+    let svg = render_vehicles(
+        &SvgOptions {
+            crop: Some(Crop {
+                x: f64::from(BUS_AT.0),
+                y: f64::from(BUS_AT.1),
+                radius: 30.0,
+            }),
+            metres_per_pixel: 4.0,
+            ..SvgOptions::default()
+        },
+        &[],
+    );
+    assert!(svg.contains("class=\"vehicle bus\""), "{svg}");
+    assert!(
+        !svg.contains("class=\"vehicle waggon\""),
+        "55 m east, outside"
+    );
+    assert!(!vehicle_layer(&svg).contains("<text"), "no names asked for");
 }
 
 #[test]

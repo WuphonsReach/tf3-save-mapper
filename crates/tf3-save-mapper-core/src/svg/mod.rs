@@ -7,7 +7,7 @@
 //! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
 //! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
-//! `grid-labels` and `compass`.
+//! `vehicles`, `grid-labels` and `compass`.
 
 mod depots;
 mod grid;
@@ -15,6 +15,7 @@ mod industries;
 mod rose;
 mod stations;
 mod terrain;
+mod vehicles;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -146,6 +147,10 @@ pub struct Layers {
     pub stations: Vec<Instance>,
     /// Station piece boxes by model path.
     pub station_boxes: HashMap<String, Rect>,
+    /// Vehicle model instances (`vehicle/...`).
+    pub vehicles: Vec<Instance>,
+    /// Names to write beside vehicles, by instance slot.
+    pub vehicle_names: HashMap<usize, String>,
 }
 
 /// Where map points fall in the picture: metres from its top-left corner,
@@ -275,6 +280,12 @@ pub fn write_svg(
         .filter(|i| shows(i, depots::REACH))
         .cloned()
         .collect();
+    let vehicle_rows: Vec<Instance> = layers
+        .vehicles
+        .iter()
+        .filter(|i| shows(i, 0.0))
+        .cloned()
+        .collect();
     let industry_rows: Vec<(Instance, String)> = layers
         .industries
         .iter()
@@ -345,6 +356,15 @@ pub fn write_svg(
     write_lines(
         out,
         &industries::layers(&picture, &industry_rows, &layers.industry_faces),
+    )?;
+    write_lines(
+        out,
+        &vehicles::layers(
+            &picture,
+            &vehicle_rows,
+            &layers.vehicle_names,
+            options.metres_per_pixel,
+        ),
     )?;
     write_lines(out, &grid_labels)?;
     if options.rose {

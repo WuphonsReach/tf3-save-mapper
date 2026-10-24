@@ -1,5 +1,6 @@
 //! Command-line front end for `tf3-save-mapper-core`: arguments in, SVG file out.
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -44,6 +45,9 @@ Options:
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
       --keep-dead     also draw edges whose end node is in the free-id list (roads the game deleted)
+      --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
+      --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
+                      name such as \"Road Vehicle 279\" is shortened to RV279
   -h, --help          show this help
   -V, --version       show the version";
 
@@ -64,10 +68,12 @@ struct Args {
     industries: bool,
     depots: bool,
     stations: bool,
+    vehicles: bool,
+    names: HashMap<usize, String>,
 }
 
 enum Parsed {
-    Run(Args),
+    Run(Box<Args>),
     Exit(String),
 }
 
@@ -79,6 +85,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut game = None;
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     let (mut grid, mut no_grid) = (None, false);
+    let (mut vehicles, mut names) = (false, HashMap::new());
     while let Some(arg) = args.next() {
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
@@ -111,6 +118,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--grid-lines" => options.grid_lines = grid_lines(&value("--grid-lines")?)?,
             "--grid-dot-step" => options.grid_dot_step = width(&value("--grid-dot-step")?)?,
             "--keep-dead" => keep_dead = true,
+            "--vehicles" => vehicles = true,
+            "--name" => {
+                let (slot, text) = name(&value("--name")?)?;
+                names.insert(slot, text);
+            }
             flag if flag.starts_with('-') => {
                 return Err(format!("unknown option {flag}"));
             }
@@ -131,7 +143,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     // From the whole name: `Map v1.5.sav` gives `Map v1.5.svg`, not `Map v1.svg`.
     let output = output
         .unwrap_or_else(|| Path::new(save.file_name().unwrap_or_default()).with_extension("svg"));
-    Ok(Parsed::Run(Args {
+    Ok(Parsed::Run(Box::new(Args {
         save,
         output,
         options,
@@ -141,7 +153,9 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         industries,
         depots,
         stations,
-    }))
+        vehicles,
+        names,
+    })))
 }
 
 /// A number of metres above 0.
@@ -167,6 +181,15 @@ fn crop(text: &str) -> Result<Crop, String> {
             "--crop wants X,Y,R in metres, R above 0, not {text:?}"
         )),
     }
+}
+
+/// `SLOT=TEXT`, the slot a whole number.
+fn name(text: &str) -> Result<(usize, String), String> {
+    text.split_once('=')
+        .and_then(|(slot, name)| Some((slot.trim().parse::<usize>().ok()?, name.to_owned())))
+        .ok_or(format!(
+            "--name wants SLOT=TEXT, with a number for the slot, not {text:?}"
+        ))
 }
 
 /// A zoom: a whole number, 1 or more.
@@ -262,9 +285,14 @@ fn run(args: Args) -> Result<(), String> {
     let layers = read_layers(&args, &stream, &header)?;
     write_output(&args, &header, &edges, &layers)?;
 
+    let vehicles = if args.vehicles {
+        format!(", {} vehicles", layers.vehicles.len())
+    } else {
+        String::new()
+    };
     eprintln!(
         "{} road edges, {} track edges ({dropped} deleted ones left out), {} industries, \
-         {} depots, {} station pieces; wrote {}",
+         {} depots, {} station pieces{vehicles}; wrote {}",
         edges.len() - tracks,
         tracks,
         layers.industries.len(),
@@ -286,12 +314,18 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
             Err(e) => eprintln!("{e}: the map is drawn without terrain"),
         }
     }
-    if !(args.industries || args.depots || args.stations) {
+    if !(args.industries || args.depots || args.stations || args.vehicles) {
         return Ok(layers);
     }
-    let found = Install::find(args.game.as_deref());
+    let wants_install = args.industries || args.depots || args.stations;
+    let found = if wants_install {
+        Install::find(args.game.as_deref())
+    } else {
+        None
+    };
     let game = match (&found, &args.game) {
         (Some(game), _) => Some(game),
+        (None, _) if !wants_install => None,
         (None, Some(dir)) => {
             return Err(format!(
                 "no game install in {} (want the folder holding base/content)",
@@ -309,7 +343,7 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
     let table = match read_model_table(stream) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("{e}: no industries, depots or stations");
+            eprintln!("{e}: no industries, depots, stations or vehicles");
             return Ok(layers);
         }
     };
@@ -322,6 +356,9 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
     }
     if args.stations && game.is_some() {
         prefixes.extend(["stations/water/", "stations/rail/", "stations/street/"]);
+    }
+    if args.vehicles {
+        prefixes.push("vehicle/");
     }
     if prefixes.is_empty() {
         return Ok(layers);
@@ -343,6 +380,14 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
             .collect();
         layers.industry_faces =
             faces_with_measured(game.map(install::industry_faces).unwrap_or_default());
+    }
+    if args.vehicles {
+        layers.vehicles = instances
+            .iter()
+            .filter(|i| i.model.starts_with("vehicle/"))
+            .cloned()
+            .collect();
+        layers.vehicle_names = args.names.clone();
     }
     if let Some(game) = game {
         if args.depots {
@@ -424,7 +469,7 @@ fn write_output(
 
 fn main() -> ExitCode {
     let result = parse_args(std::env::args().skip(1)).and_then(|parsed| match parsed {
-        Parsed::Run(args) => run(args),
+        Parsed::Run(args) => run(*args),
         Parsed::Exit(text) => {
             println!("{text}");
             Ok(())
@@ -449,7 +494,7 @@ mod tests {
 
     fn run_args(args: &[&str]) -> Args {
         match parse(args) {
-            Ok(Parsed::Run(a)) => a,
+            Ok(Parsed::Run(a)) => *a,
             _ => panic!("expected a run"),
         }
     }
@@ -529,6 +574,23 @@ mod tests {
     }
 
     #[test]
+    fn vehicles_and_their_names_are_read() {
+        let a = run_args(&[
+            "s.sav",
+            "--vehicles",
+            "--name",
+            "1204=Road Vehicle 7",
+            "--name",
+            "88=a=b",
+        ]);
+        assert!(a.vehicles);
+        assert_eq!(a.names[&1204], "Road Vehicle 7");
+        assert_eq!(a.names[&88], "a=b");
+        assert!(parse(&["s.sav", "--name", "bus=x"]).is_err());
+        assert!(parse(&["s.sav", "--name", "12"]).is_err());
+    }
+
+    #[test]
     fn a_crop_is_drawn_at_4_m_per_pixel() {
         let a = run_args(&["s.sav", "--crop", "-120.5,300,250", "--zoom", "3"]);
         assert_eq!(
@@ -546,6 +608,7 @@ mod tests {
             assert!(parse(&["s.sav", "--crop", bad]).is_err(), "{bad}");
         }
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
+        assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
         assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
     }
 
