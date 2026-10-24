@@ -62,6 +62,9 @@ impl Archive {
         if count == u16::MAX || size == u32::MAX || offset == u32::MAX {
             return Err(bad("zip64 archives are not read"));
         }
+        if u64::from(offset) + u64::from(size) > len {
+            return Err(bad("zip directory lies outside the file"));
+        }
         file.seek(SeekFrom::Start(u64::from(offset)))?;
         let mut dir = vec![0; size as usize];
         file.read_exact(&mut dir)?;
@@ -189,6 +192,25 @@ mod tests {
         assert_eq!(zip.read_text("x/a.lua").as_deref(), Some("return 1"));
         assert_eq!(zip.read_text("x/b.lua"), None);
         assert_eq!(zip.read_text("x/c.lua"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_directory_that_lies_outside_the_file_is_refused() {
+        let dir = std::env::temp_dir().join(format!("tf3map-zip-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.zip");
+        // Only an end record, claiming a 4 GB directory.
+        let mut end = END_SIGNATURE.to_le_bytes().to_vec();
+        end.extend_from_slice(&[0; 4]);
+        end.extend_from_slice(&1u16.to_le_bytes());
+        end.extend_from_slice(&1u16.to_le_bytes());
+        end.extend_from_slice(&0xFFFF_FF00u32.to_le_bytes());
+        end.extend_from_slice(&0u32.to_le_bytes());
+        end.extend_from_slice(&[0; 2]);
+        std::fs::write(&path, &end).unwrap();
+        let err = Archive::open(&path).err().unwrap();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

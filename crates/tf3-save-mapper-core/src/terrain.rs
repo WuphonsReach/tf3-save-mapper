@@ -108,12 +108,18 @@ fn read_record(data: &[u8]) -> Option<(u32, u32, f32, f32, f32)> {
 /// and 4225 together; the u32 before the `0e` varies between saves, so it is
 /// not part of the key. Each tile then follows as a u32 count and its points.
 fn read_heightmap(data: &[u8], tiles_x: u32, tiles_y: u32) -> Option<Vec<u16>> {
-    let count = tiles_x * tiles_y;
+    let count = tiles_x.checked_mul(tiles_y)?;
     let mut key = vec![0x0e, 0, 0, 0];
     key.extend_from_slice(&[0; 12]);
     key.extend_from_slice(&count.to_le_bytes());
     key.extend_from_slice(&TILE_POINTS.to_le_bytes());
     let mut p = memmem::find(data, &key)? + 20; // at the first tile's count
+    // The tiles must all be in the data before the grid is allocated from the
+    // counts the save states.
+    let tile_bytes = 4 + 2 * TILE_POINTS as usize;
+    if (data.len() - p) / tile_bytes < count as usize {
+        return None;
+    }
     let columns = 64 * tiles_x as usize + 1;
     let rows = 64 * tiles_y as usize + 1;
     let mut grid = vec![0u16; columns * rows];
@@ -142,5 +148,33 @@ mod tests {
     #[test]
     fn no_record_is_an_error() {
         assert!(matches!(read_terrain(&[0; 64]), Err(Error::NoTerrain)));
+    }
+
+    /// The key that `read_heightmap` looks for, followed by `tail`.
+    fn heightmap_key(count: u32, tail: &[u8]) -> Vec<u8> {
+        let mut data = vec![0x0e, 0, 0, 0];
+        data.extend_from_slice(&[0; 12]);
+        data.extend_from_slice(&count.to_le_bytes());
+        data.extend_from_slice(&TILE_POINTS.to_le_bytes());
+        data.extend_from_slice(tail);
+        data
+    }
+
+    #[test]
+    fn counts_the_data_cannot_hold_are_refused_before_anything_is_allocated() {
+        // 999 x 999 tiles would be an 8 GB grid; the data holds none of them.
+        let data = heightmap_key(999 * 999, &[0; 64]);
+        assert_eq!(read_heightmap(&data, 999, 999), None);
+        // The product of the counts does not fit in a u32.
+        let data = heightmap_key(0, &[0; 64]);
+        assert_eq!(read_heightmap(&data, 70_000, 70_000), None);
+        // One tile that is there is read (the key's last word is its count);
+        // one more than there is, is not.
+        let points: Vec<u8> = (0..TILE_POINTS as usize)
+            .flat_map(|i| (i as u16).to_le_bytes())
+            .collect();
+        let data = heightmap_key(1, &points);
+        assert_eq!(read_heightmap(&data, 1, 1).map(|g| g.len()), Some(65 * 65));
+        assert_eq!(read_heightmap(&data, 1, 2), None);
     }
 }
