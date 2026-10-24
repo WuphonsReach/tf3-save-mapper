@@ -45,6 +45,13 @@ fn landing_size(model: &str) -> Option<&'static str> {
     }
 }
 
+/// Metres from a piece's origin within which it may show: its box's far
+/// corner, or a landing's 1 m stand-in box.
+pub(super) fn reach(model: &str, boxes: &HashMap<String, Rect>) -> f64 {
+    let (x0, y0, x1, y1) = boxes.get(model).copied().unwrap_or((-1.0, -1.0, 1.0, 1.0));
+    x0.abs().max(x1.abs()).hypot(y0.abs().max(y1.abs()))
+}
+
 /// Whether an instance is drawn on the station layers.
 pub fn is_station_piece(model: &str, boxes: &HashMap<String, Rect>) -> bool {
     boxes.contains_key(model) || landing_size(model).is_some()
@@ -295,6 +302,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let boxes = HashMap::from([
             (
@@ -330,6 +338,7 @@ mod tests {
         let picture = Picture {
             width: 1000.0,
             height: 1000.0,
+            north: crate::svg::North::Game,
         };
         let boxes = HashMap::from([(
             "stations/water/models/dock_50_12.mdl".to_owned(),

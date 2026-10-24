@@ -13,11 +13,13 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Stations**: the docks, platforms and buildings of water, rail and street stations, with a border round each bus, tram or cargo station and an anchor on each ship landing.
 - **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier.
 - **Industries**: each industry's footprint, and a badge with its icon.
-- A **compass rose** in the lower right corner.
+- **Vehicles**, when asked for: one shape per vehicle, pointing where it faces.
+- A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
+- A **compass rose**, in the lower right corner unless asked elsewhere.
 
 The shapes of stations, depots and industry footprints come from the game's own files, read from your install when the tool runs (see below). Without an install the map still has the terrain, the network and the industry badges.
 
-Drawing choices: labels are left out rather than moved, one outline width (1.5 m), no inner lines, plain dark anchors. The compass follows the game's own axes (x east, y north). The colours are our own, not the game's.
+Drawing choices: labels are left out rather than moved, one outline width (1.5 m), no inner lines, plain dark anchors. By default the compass follows the game's own axes (x east, y north); `--north sun` turns the map to the north the sun's path gives. The colours are our own, not the game's.
 
 ## Using it
 
@@ -28,12 +30,18 @@ tf3map SAVE.sav -o map.svg
 
 Options (`tf3map --help` lists them all):
 
+- `--crop X,Y,R` draws only the square of half-width R metres round the map point X,Y (x east, y north, 0,0 the map's centre), at 4 m per pixel instead of 8. The picture keeps the whole map's frame, so its `viewBox` starts at the crop's corner. `--zoom N` makes the picture N times larger on screen.
 - `--game DIR`: the game's install folder, the one holding `base/`. By default the usual Steam folders and their library folders are tried.
 - `--contour M` sets the metres between height lines and bands (default 20); `--no-bands` leaves the colour bands out.
 - `--no-terrain`, `--no-industries`, `--no-depots`, `--no-stations` and `--no-rose` leave a layer out.
+- `--rose WHERE` puts the compass rose in a corner (`lower-right`, the default, `lower-left`, `upper-left`, `upper-right`), round the map point `X,Y`, or nowhere (`off`); `--rose-size M` sets its diameter (default 250 m, at most an eighth of the picture's shorter side).
+- `--north sun` turns the map so that up is +x and right is -y, the north the sun's path gives, instead of the game's own (`--north game`, the default: up is +y).
 - `--min-width M` draws no road or track narrower than M metres, so tracks stay visible on a whole-map view.
 - `--road-width M` and `--rail-width M` set the width of an edge whose lanes cannot be read (default 16 and 4).
 - `--keep-dead` also draws roads the game deleted but left in the save.
+- `--vehicles` draws the vehicles, coloured by kind. `--name SLOT=TEXT` writes TEXT beside the vehicle whose `data-slot` is SLOT (repeatable); a default name such as `Road Vehicle 279` is shortened to `RV279`.
+- `--label A>B[=TEXT]` writes TEXT (or `A>B`) along the edge between the nodes with hex ids A and B, in either order, and marks its ends (repeatable); `--edge-ids` adds the edge's own entity id where the save's strip table gives it. A label is never moved; one whose edge is not in the picture is reported.
+- `--grid N` puts marks every N metres, the 1000 m ones major; by default there are major marks only, about a third of the shorter side apart (1000 m at least on a whole map). `--no-grid` leaves the grid out, `--grid-lines auto|none|dots|faint` chooses which lines are drawn besides the crosses and `--grid-dot-step M` spaces the dots.
 
 A save is read, never written, and the output may not be a `.sav`. A 390 MB save takes about three seconds and 1.7 GB of memory, because the whole decompressed stream is held.
 

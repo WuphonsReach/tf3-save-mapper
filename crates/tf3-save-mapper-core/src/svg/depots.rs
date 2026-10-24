@@ -13,6 +13,8 @@ use crate::geometry::{bounds, closed_outline};
 use crate::install::{DEPOT_KINDS, DepotSpec};
 use crate::instances::Instance;
 
+/// Metres from a building's origin within which it may show.
+pub(super) const REACH: f64 = 40.0;
 /// Metres: the radius of the dot for a building with no face.
 const DOT: f64 = 4.0;
 
@@ -108,6 +110,7 @@ mod tests {
         let picture = Picture {
             width: 200.0,
             height: 200.0,
+            north: crate::svg::North::Game,
         };
         let specs = HashMap::from([(
             "road-depots",
