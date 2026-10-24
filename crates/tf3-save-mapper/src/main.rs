@@ -26,13 +26,15 @@ Options:
   -o, --output FILE   where to write the SVG (default: the save's name with .svg, in the current folder)
       --crop X,Y,R    draw only the square of half-width R metres round map point X,Y
       --mpp M         metres per pixel: 1 or 2 (with --crop only), or a multiple of 4 (default 8 for
-                      the whole map, 4 on a crop); the terrain is cut from every (M / 4)th point of
-                      the 4 m heightmap
+                      the whole map's vector terrain, 4 on a crop and with --raster); the terrain is
+                      cut from every (M / 4)th point of the 4 m heightmap
+      --raster        draw the terrain as one shaded picture embedded in the SVG (height colours, hill
+                      shading, water) instead of vector bands, water and height lines
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
-      --contour M     metres between height lines and height bands (default 20)
-      --no-bands      leave out the coloured height bands
+      --contour M     metres between height lines and height bands (default 20; vector terrain)
+      --no-bands      leave out the coloured height bands (vector terrain)
       --no-terrain    leave out the terrain
       --no-industries leave out the industries
       --no-depots     leave out the depots and maintenance buildings
@@ -73,6 +75,8 @@ const MIN_CONTOUR: f64 = 1.0;
 const CROP_METRES_PER_PIXEL: u32 = 4;
 /// Metres per pixel of the whole map's vector terrain.
 const WHOLE_METRES_PER_PIXEL: u32 = 8;
+/// Metres per pixel of a raster terrain: the heightmap's own spacing.
+const RASTER_METRES_PER_PIXEL: u32 = 4;
 
 struct Args {
     save: PathBuf,
@@ -104,6 +108,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     let (mut grid, mut no_grid) = (None, false);
     let mut mpp = None;
+    let mut vector_only = Vec::new();
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
     while let Some(arg) = args.next() {
@@ -123,9 +128,16 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
             "--min-width" => options.min_width = metres(&value("--min-width")?, 0.0)?,
-            "--contour" => options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?,
+            "--contour" => {
+                options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?;
+                vector_only.push("--contour");
+            }
             "--game" => game = Some(PathBuf::from(value("--game")?)),
-            "--no-bands" => options.bands = false,
+            "--no-bands" => {
+                options.bands = false;
+                vector_only.push("--no-bands");
+            }
+            "--raster" => options.raster = true,
             "--no-terrain" => terrain = false,
             "--no-industries" => industries = false,
             "--no-depots" => depots = false,
@@ -160,8 +172,17 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
         Some(m) => m,
         None if options.crop.is_some() => CROP_METRES_PER_PIXEL,
+        None if options.raster => RASTER_METRES_PER_PIXEL,
         None => WHOLE_METRES_PER_PIXEL,
     };
+    if options.raster {
+        if !terrain {
+            return Err("--raster draws the terrain: not with --no-terrain".into());
+        }
+        if let Some(flag) = vector_only.first() {
+            return Err(format!("{flag} is for the vector terrain, not --raster"));
+        }
+    }
     options.metres_per_pixel = f64::from(mpp);
     options.grid = match (grid, no_grid) {
         (Some(_), true) => return Err("--no-grid and --grid exclude each other".into()),
@@ -793,6 +814,24 @@ mod tests {
         }
         let finer = parse(&["s.sav", "--mpp", "2"]);
         assert!(matches!(finer, Err(e) if e.contains("needs --crop")));
+    }
+
+    #[test]
+    fn a_raster_terrain_is_drawn_at_4_m_per_pixel() {
+        let a = run_args(&["s.sav", "--raster"]);
+        assert!(a.options.raster && a.terrain);
+        assert_eq!(a.options.metres_per_pixel, 4.0);
+        assert_eq!(a.output, Path::new("s.svg"));
+        let a = run_args(&["s.sav", "--mpp", "16", "--raster"]);
+        assert_eq!(a.options.metres_per_pixel, 16.0);
+        assert!(!run_args(&["s.sav"]).options.raster, "vector by default");
+        for bad in [
+            &["s.sav", "--raster", "--no-terrain"][..],
+            &["s.sav", "--raster", "--no-bands"],
+            &["s.sav", "--contour", "10", "--raster"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

@@ -683,3 +683,133 @@ fn metres_per_pixel_size_the_picture_and_thin_the_terrain() {
     );
     assert!(svg.contains("<rect width=\"240\" height=\"244\" fill=\"#"));
 }
+
+fn base64_decode(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        b'/' => 63,
+        _ => panic!("not base64: {c}"),
+    };
+    let mut out = Vec::new();
+    for quad in text.as_bytes().chunks(4) {
+        let digits: Vec<u8> = quad
+            .iter()
+            .filter(|&&c| c != b'=')
+            .map(|&c| value(c))
+            .collect();
+        let n = digits
+            .iter()
+            .chain(std::iter::repeat(&0))
+            .take(4)
+            .fold(0u32, |n, &d| n << 6 | u32::from(d));
+        out.extend(&n.to_be_bytes()[1..digits.len()]);
+    }
+    out
+}
+
+/// The width, height and RGB pixels of a PNG.
+fn decode_png(png: &[u8]) -> (u32, u32, Vec<u8>) {
+    let mut dec = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut buf = vec![0; dec.output_buffer_size().unwrap()];
+    let info = dec.next_frame(&mut buf).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgb);
+    (info.width, info.height, buf)
+}
+
+/// The terrain picture embedded in a raster SVG.
+fn raster_pixels(svg: &str) -> (u32, u32, Vec<u8>) {
+    let data = svg
+        .split("xlink:href=\"data:image/png;base64,")
+        .nth(1)
+        .and_then(|d| d.split('"').next())
+        .unwrap();
+    decode_png(&base64_decode(data))
+}
+
+fn pixel((w, _, rgb): &(u32, u32, Vec<u8>), i: u32, j: u32) -> [u8; 3] {
+    let o = 3 * (j * w + i) as usize;
+    [rgb[o], rgb[o + 1], rgb[o + 2]]
+}
+
+// The expected pixels were drawn by the prototype's own `render` from the
+// same heights (tests/common/mod.rs `height`).
+
+#[test]
+fn a_raster_terrain_is_one_shaded_picture_under_the_network() {
+    let svg = render(&SvgOptions {
+        raster: true,
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains(
+        "<g id=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\">\
+         <image width=\"4096\" height=\"2048\" xlink:href=\"data:image/png;base64,"
+    ));
+    assert!(!svg.contains("class=\"band\"") && !svg.contains("id=\"contours"));
+    assert!(svg.find("id=\"terrain\"") < svg.find("id=\"grid\""));
+    assert!(svg.find("id=\"grid\"") < svg.find("id=\"roads\""));
+    assert!(svg.contains("id=\"industry-farm\"") && svg.contains("id=\"compass\""));
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (1024, 512));
+    for (i, j, rgb) in [
+        (0, 0, [146, 166, 105]),
+        (96, 0, [86, 78, 56]),
+        (97, 0, [80, 91, 57]),
+        (500, 100, [154, 164, 106]),
+        (1023, 511, [162, 159, 106]),
+        // The pit, 40 m under water.
+        (300, 312, [84, 135, 182]),
+    ] {
+        assert_eq!(pixel(&img, i, j), rgb, "({i}, {j})");
+    }
+
+    // 8 m per pixel keeps every second point.
+    let svg = render(&SvgOptions {
+        raster: true,
+        ..SvgOptions::default()
+    });
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (512, 256));
+    assert_eq!(pixel(&img, 150, 156), [84, 135, 182]);
+    assert_eq!(pixel(&img, 511, 255), [161, 159, 106]);
+}
+
+#[test]
+fn a_fine_raster_crop_fills_in_the_grid_and_turns_with_north() {
+    let svg = render(&SvgOptions {
+        raster: true,
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 2.0,
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    // x -1020 to -780 and y 328 to 572: with north to the left, 244 m across
+    // and 240 m down, from the corner at x = -780, y = 572.
+    assert!(
+        svg.contains(
+            "inkscape:label=\"Terrain\" transform=\"translate(452 2828)\">\
+             <image width=\"244\" height=\"240\""
+        ),
+        "{}",
+        &svg[..2000]
+    );
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (122, 120));
+    for (i, j, rgb) in [
+        (0, 0, [129, 135, 88]),
+        (1, 0, [124, 129, 84]),
+        (0, 1, [117, 122, 79]),
+        (121, 119, [119, 111, 76]),
+    ] {
+        assert_eq!(pixel(&img, i, j), rgb, "({i}, {j})");
+    }
+}

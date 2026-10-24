@@ -10,4 +10,5 @@ publish.workspace = true
 
 [dependencies]
 memchr.workspace = true
+png.workspace = true
 zstd.workspace = true

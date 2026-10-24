@@ -14,6 +14,7 @@ mod depots;
 mod grid;
 mod industries;
 mod labels;
+mod raster;
 mod rose;
 mod stations;
 mod terrain;
@@ -62,6 +63,9 @@ pub struct SvgOptions {
     pub index_every: u32,
     /// Fill the height bands with a colour ramp; without, the land is one colour.
     pub bands: bool,
+    /// Draw the terrain as one shaded picture (an embedded PNG) instead of
+    /// vector bands, water and height lines.
+    pub raster: bool,
     /// Where the compass rose goes, if anywhere.
     pub rose: Option<Rose>,
     /// The rose circle's diameter, metres. Default 250, at most an eighth of
@@ -92,6 +96,7 @@ impl Default for SvgOptions {
             contour_step: 20.0,
             index_every: 5,
             bands: true,
+            raster: false,
             rose: Some(Rose::LowerRight),
             rose_size: None,
             north: North::Game,
@@ -379,8 +384,10 @@ pub fn write_svg(
         layer("background", "Background", ""),
         corner_attrs(&view)
     )?;
-    if let Some(t) = &layers.terrain {
-        terrain::write(out, t, &picture, crop, options)?;
+    match &layers.terrain {
+        Some(t) if options.raster => terrain::write_raster(out, t, &picture, crop, options)?,
+        Some(t) => terrain::write(out, t, &picture, crop, options)?,
+        None => {}
     }
     let step = match options.grid {
         GridStep::Off => None,
