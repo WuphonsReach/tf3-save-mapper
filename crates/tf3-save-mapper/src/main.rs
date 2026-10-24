@@ -646,7 +646,12 @@ fn write_output(
         .and_then(|()| std::fs::rename(&temp, &args.output));
     if let Err(e) = written {
         let _ = std::fs::remove_file(&temp);
-        return Err(cannot_write(e));
+        // A map that cannot be drawn as asked (a picture too big) says so itself.
+        return Err(if e.kind() == std::io::ErrorKind::InvalidInput {
+            e.to_string()
+        } else {
+            cannot_write(e)
+        });
     }
     Ok(())
 }
