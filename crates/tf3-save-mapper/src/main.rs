@@ -152,10 +152,14 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Exit(USAGE.into())),
             "-V" | "--version" => {
-                return Ok(Parsed::Exit(format!(
-                    "tf3map {}",
-                    env!("CARGO_PKG_VERSION")
-                )));
+                // The commit follows the version, so a build between two
+                // releases has its own text (a caller can key a cache on it).
+                return Ok(Parsed::Exit(match option_env!("TF3MAP_BUILD") {
+                    Some(build) if !build.is_empty() => {
+                        format!("tf3map {} ({build})", env!("CARGO_PKG_VERSION"))
+                    }
+                    _ => format!("tf3map {}", env!("CARGO_PKG_VERSION")),
+                }));
             }
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
             "--crop" => options.crop = Some(crop(&value("--crop")?)?),
@@ -409,19 +413,19 @@ fn metres(text: &str, least: f64) -> Result<f64, String> {
     }
 }
 
-fn run(args: Args) -> Result<(), String> {
+fn run(args: Args) -> Result<(), Failure> {
     // A read-only tool: never let the output be a save, or the save itself.
     let same_file = match (args.save.canonicalize(), args.output.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     };
     if names_a_save(&args.output) || same_file {
-        return Err("the output must not be a .sav file".into());
+        return Err("the output must not be a .sav file".to_owned().into());
     }
     if let Some(dir) = &args.mods
         && !dir.is_dir()
     {
-        return Err(format!("no mods folder at {}", dir.display()));
+        return Err(format!("no mods folder at {}", dir.display()).into());
     }
 
     let o = &args.options;
@@ -434,16 +438,22 @@ fn run(args: Args) -> Result<(), String> {
     }
 
     let file = File::open(&args.save).map_err(|e| format!("cannot open the save: {e}"))?;
-    let cannot_read = |e: tf3_save_mapper_core::Error| format!("cannot read the save: {e}");
+    let cannot_read = |e: tf3_save_mapper_core::Error| Failure {
+        code: EXIT_REFUSED,
+        message: format!("cannot read the save: {e}"),
+    };
     let stream = container::decompress(file).map_err(cannot_read)?;
     let header = read_header(&stream).map_err(cannot_read)?;
     if let Some(c) = args.options.crop
         && c.bounds(&header).is_none()
     {
-        return Err(format!(
-            "the crop lies outside the map ({} x {} m, centred on 0,0)",
-            header.map_width, header.map_height
-        ));
+        return Err(Failure {
+            code: EXIT_USAGE,
+            message: format!(
+                "the crop lies outside the map ({} x {} m, centred on 0,0)",
+                header.map_width, header.map_height
+            ),
+        });
     }
     let mut edges = read_edges(&stream).map_err(cannot_read)?;
 
@@ -702,19 +712,46 @@ fn write_output(
     Ok(())
 }
 
-fn main() -> ExitCode {
-    let result = parse_args(std::env::args().skip(1)).and_then(|parsed| match parsed {
-        Parsed::Run(args) => run(*args),
-        Parsed::Exit(text) => {
-            println!("{text}");
-            Ok(())
+/// Exit status: 0 the map was written, 1 something else failed (the file
+/// cannot be opened, no install, the output cannot be written), 2 the
+/// arguments are wrong, 3 the save was refused (the reader found it
+/// unreadable). Every failure writes one `tf3map: MESSAGE` line to stderr.
+const EXIT_FAILED: u8 = 1;
+const EXIT_USAGE: u8 = 2;
+const EXIT_REFUSED: u8 = 3;
+
+struct Failure {
+    code: u8,
+    message: String,
+}
+
+impl From<String> for Failure {
+    fn from(message: String) -> Self {
+        Failure {
+            code: EXIT_FAILED,
+            message,
         }
-    });
+    }
+}
+
+fn main() -> ExitCode {
+    let result = parse_args(std::env::args().skip(1))
+        .map_err(|message| Failure {
+            code: EXIT_USAGE,
+            message,
+        })
+        .and_then(|parsed| match parsed {
+            Parsed::Run(args) => run(*args),
+            Parsed::Exit(text) => {
+                println!("{text}");
+                Ok(())
+            }
+        });
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
+        Err(Failure { code, message }) => {
             eprintln!("tf3map: {message}");
-            ExitCode::FAILURE
+            ExitCode::from(code)
         }
     }
 }

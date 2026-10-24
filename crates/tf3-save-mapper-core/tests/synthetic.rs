@@ -1070,3 +1070,33 @@ fn a_png_without_terrain_is_paper_and_network() {
     let paper = img.2.chunks(3).filter(|p| *p == [255, 255, 255]).count();
     assert_eq!(paper + road + rail, 512 * 256);
 }
+
+#[test]
+fn the_svg_carries_the_view_record_of_the_png() {
+    let svg = render(&SvgOptions::default());
+    assert!(
+        svg.contains(&format!(
+            "<metadata><tf3map:view xmlns:tf3map=\"urn:tf3-save-format:terrain-map:1\" \
+             map-width=\"4096\" map-height=\"2048\" metres-per-pixel=\"8\" \
+             orientation=\"north-up (game): image up is +y, image right is +x\" north=\"game\" \
+             x-min=\"-2048\" x-max=\"2048\" y-min=\"-1024\" y-max=\"1024\" generator=\"tf3map\" \
+             generator-version=\"{}\"/></metadata>",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{}",
+        svg.lines().find(|l| l.contains("<metadata>")).unwrap_or("")
+    );
+    let cropped = render(&SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    assert!(cropped.contains(
+        "x-min=\"-1020\" x-max=\"-780\" y-min=\"328\" y-max=\"572\" x-top=\"-780\" \
+         y-left=\"572\" crop-x=\"-900\" crop-y=\"450\" crop-radius=\"120\""
+    ));
+}
