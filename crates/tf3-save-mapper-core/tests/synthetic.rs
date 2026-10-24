@@ -12,7 +12,7 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
     read_header, read_instances, read_model_table, read_strips, read_terrain, retain_live,
-    write_svg,
+    write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -638,4 +638,277 @@ fn a_stream_with_no_table_has_no_edges() {
         read_edges(&stream),
         Err(tf3_save_mapper_core::Error::NoEdges)
     ));
+}
+
+#[test]
+fn metres_per_pixel_size_the_picture_and_thin_the_terrain() {
+    // 16 m per pixel: 256 x 128 pixels, the terrain cut from every fourth
+    // grid point (257 x 129 of them, 16 m apart).
+    let svg = render(&SvgOptions {
+        metres_per_pixel: 16.0,
+        ..SvgOptions::default()
+    });
+    assert!(
+        svg.contains("width=\"256\" height=\"128\" viewBox=\"0 0 4096 2048\""),
+        "{svg}"
+    );
+    assert!(svg.contains("<rect width=\"4096\" height=\"2048\" fill=\"#"));
+    // Height lines are half a pixel wide, in metres.
+    assert!(svg.contains("id=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
+
+    // 12 m per pixel keeps every third point: 342 of the 1025, the last at
+    // 4092 m, so the terrain stops 4 m short of the map's right edge.
+    let svg = render(&SvgOptions {
+        metres_per_pixel: 12.0,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("width=\"342\" height=\"171\""), "{svg}");
+    assert!(svg.contains("<rect width=\"4092\" height=\"2040\" fill=\"#"));
+
+    // Finer than the grid on a crop: the picture has more pixels, the
+    // terrain the same 4 m points.
+    let crop = Crop {
+        x: -900.0,
+        y: 450.0,
+        radius: 120.0,
+    };
+    let svg = render(&SvgOptions {
+        crop: Some(crop),
+        metres_per_pixel: 2.0,
+        ..SvgOptions::default()
+    });
+    assert!(
+        svg.contains("width=\"120\" height=\"122\" viewBox=\"1028 452 240 244\""),
+        "{svg}"
+    );
+    assert!(svg.contains("<rect width=\"240\" height=\"244\" fill=\"#"));
+}
+
+fn base64_decode(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => c - b'A',
+        b'a'..=b'z' => c - b'a' + 26,
+        b'0'..=b'9' => c - b'0' + 52,
+        b'+' => 62,
+        b'/' => 63,
+        _ => panic!("not base64: {c}"),
+    };
+    let mut out = Vec::new();
+    for quad in text.as_bytes().chunks(4) {
+        let digits: Vec<u8> = quad
+            .iter()
+            .filter(|&&c| c != b'=')
+            .map(|&c| value(c))
+            .collect();
+        let n = digits
+            .iter()
+            .chain(std::iter::repeat(&0))
+            .take(4)
+            .fold(0u32, |n, &d| n << 6 | u32::from(d));
+        out.extend(&n.to_be_bytes()[1..digits.len()]);
+    }
+    out
+}
+
+/// The width, height and RGB pixels of a PNG.
+fn decode_png(png: &[u8]) -> (u32, u32, Vec<u8>) {
+    let mut dec = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut buf = vec![0; dec.output_buffer_size().unwrap()];
+    let info = dec.next_frame(&mut buf).unwrap();
+    assert_eq!(info.color_type, png::ColorType::Rgb);
+    (info.width, info.height, buf)
+}
+
+/// The terrain picture embedded in a raster SVG.
+fn raster_pixels(svg: &str) -> (u32, u32, Vec<u8>) {
+    let data = svg
+        .split("xlink:href=\"data:image/png;base64,")
+        .nth(1)
+        .and_then(|d| d.split('"').next())
+        .unwrap();
+    decode_png(&base64_decode(data))
+}
+
+fn pixel((w, _, rgb): &(u32, u32, Vec<u8>), i: u32, j: u32) -> [u8; 3] {
+    let o = 3 * (j * w + i) as usize;
+    [rgb[o], rgb[o + 1], rgb[o + 2]]
+}
+
+// The expected pixels were drawn by the prototype's own `render` from the
+// same heights (tests/common/mod.rs `height`).
+
+#[test]
+fn a_raster_terrain_is_one_shaded_picture_under_the_network() {
+    let svg = render(&SvgOptions {
+        raster: true,
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains(
+        "<g id=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\">\
+         <image width=\"4096\" height=\"2048\" xlink:href=\"data:image/png;base64,"
+    ));
+    assert!(!svg.contains("class=\"band\"") && !svg.contains("id=\"contours"));
+    assert!(svg.find("id=\"terrain\"") < svg.find("id=\"grid\""));
+    assert!(svg.find("id=\"grid\"") < svg.find("id=\"roads\""));
+    assert!(svg.contains("id=\"industry-farm\"") && svg.contains("id=\"compass\""));
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (1024, 512));
+    for (i, j, rgb) in [
+        (0, 0, [146, 166, 105]),
+        (96, 0, [86, 78, 56]),
+        (97, 0, [80, 91, 57]),
+        (500, 100, [154, 164, 106]),
+        (1023, 511, [162, 159, 106]),
+        // The pit, 40 m under water.
+        (300, 312, [84, 135, 182]),
+    ] {
+        assert_eq!(pixel(&img, i, j), rgb, "({i}, {j})");
+    }
+
+    // 8 m per pixel keeps every second point.
+    let svg = render(&SvgOptions {
+        raster: true,
+        ..SvgOptions::default()
+    });
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (512, 256));
+    assert_eq!(pixel(&img, 150, 156), [84, 135, 182]);
+    assert_eq!(pixel(&img, 511, 255), [161, 159, 106]);
+}
+
+#[test]
+fn a_fine_raster_crop_fills_in_the_grid_and_turns_with_north() {
+    let svg = render(&SvgOptions {
+        raster: true,
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 2.0,
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    // x -1020 to -780 and y 328 to 572: with north to the left, 244 m across
+    // and 240 m down, from the corner at x = -780, y = 572.
+    assert!(
+        svg.contains(
+            "inkscape:label=\"Terrain\" transform=\"translate(452 2828)\">\
+             <image width=\"244\" height=\"240\""
+        ),
+        "{}",
+        &svg[..2000]
+    );
+    let img = raster_pixels(&svg);
+    assert_eq!((img.0, img.1), (122, 120));
+    for (i, j, rgb) in [
+        (0, 0, [129, 135, 88]),
+        (1, 0, [124, 129, 84]),
+        (0, 1, [117, 122, 79]),
+        (121, 119, [119, 111, 76]),
+    ] {
+        assert_eq!(pixel(&img, i, j), rgb, "({i}, {j})");
+    }
+}
+
+/// The synthetic save's live edges and terrain as a flat PNG, drawn with `options`.
+fn render_png(options: &SvgOptions) -> Vec<u8> {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let mut found = read_edges(&stream).unwrap();
+    retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    let terrain = read_terrain(&stream).unwrap();
+    let mut out = Vec::new();
+    write_png(&mut out, &header, &found, Some(&terrain), options).unwrap();
+    out
+}
+
+/// FNV-1a over the pixels, and the number of road and rail pixels.
+fn fingerprint((_, _, rgb): &(u32, u32, Vec<u8>)) -> (u64, usize, usize) {
+    let hash = rgb.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+    });
+    let count = |c: [u8; 3]| rgb.chunks(3).filter(|p| *p == c).count();
+    (hash, count([50, 50, 50]), count([205, 30, 30]))
+}
+
+/// The JSON text of the PNG's `tf3map:view` chunk.
+fn view_record(png: &[u8]) -> String {
+    let key = b"tf3map:view\0\0\0\0\0";
+    let at = png.windows(key.len()).position(|w| w == key).unwrap() + key.len();
+    let len = u32::from_be_bytes(
+        png[at - key.len() - 8..at - key.len() - 4]
+            .try_into()
+            .unwrap(),
+    );
+    String::from_utf8(png[at..at - key.len() + len as usize].to_vec()).unwrap()
+}
+
+// The fingerprints were taken from the prototype's own `render` and
+// `draw_network` on the same heights and edges, given the lanes' widths.
+
+#[test]
+fn a_png_draws_the_network_into_the_raster_terrain() {
+    let png = render_png(&SvgOptions {
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    });
+    let img = decode_png(&png);
+    assert_eq!((img.0, img.1), (1024, 512));
+    assert_eq!(fingerprint(&img), (0xe431_126d_4ad9_cd67, 281, 70));
+    assert_eq!(
+        view_record(&png),
+        format!(
+            "{{\"map-width\": 4096, \"map-height\": 2048, \"metres-per-pixel\": 4, \
+             \"orientation\": \"north-up (game): image up is +y, image right is +x\", \
+             \"north\": \"game\", \"x-min\": -2048, \"x-max\": 2048, \"y-min\": -1024, \
+             \"y-max\": 1024, \"generator\": \"tf3map\", \"generator-version\": \"{}\"}}",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
+fn a_fine_png_crop_turns_with_north_and_widens_the_lines() {
+    let png = render_png(&SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 1.0,
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    let img = decode_png(&png);
+    assert_eq!((img.0, img.1), (244, 240));
+    assert_eq!(fingerprint(&img), (0x2bcd_7e3a_c6c3_1f8a, 3997, 749));
+    let view = view_record(&png);
+    assert!(
+        view.contains(
+            "\"north\": \"sun\", \"x-min\": -1020, \"x-max\": -780, \"y-min\": 328, \
+             \"y-max\": 572, \"x-top\": -780, \"y-left\": 572, \"crop-x\": -900, \
+             \"crop-y\": 450, \"crop-radius\": 120, \"generator\""
+        ),
+        "{view}"
+    );
+}
+
+#[test]
+fn a_png_without_terrain_is_paper_and_network() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let found = read_edges(&stream).unwrap();
+    let mut out = Vec::new();
+    write_png(&mut out, &header, &found, None, &SvgOptions::default()).unwrap();
+    let img = decode_png(&out);
+    // 8 m per pixel: the whole map's 513 x 257 points every second one.
+    assert_eq!((img.0, img.1), (512, 256));
+    let (_, road, rail) = fingerprint(&img);
+    assert!(road > 0 && rail > 0);
+    let paper = img.2.chunks(3).filter(|p| *p == [255, 255, 255]).count();
+    assert_eq!(paper + road + rail, 512 * 256);
 }

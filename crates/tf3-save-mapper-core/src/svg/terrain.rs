@@ -8,11 +8,15 @@
 //! and `contours` (`contours-minor` and `contours-index`, one path per level).
 //! Heights are metres above the water. The colours are a plain height ramp,
 //! not the game's own palette.
+//!
+//! With `SvgOptions::raster` the layer holds instead one shaded picture of
+//! the terrain (`raster.rs`), embedded as a PNG.
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
+use super::raster::{self, Sampling};
 use super::{North, Picture, SvgOptions, fmt_g, layer};
 use crate::contour::{Grid, Point, level_rings, simplify, split_at_border};
 use crate::terrain::{GRID_STEP, Terrain};
@@ -32,8 +36,9 @@ const SHORE_LINE: &str = "#4a86b8";
 const CONTOUR_MINOR: &str = "#b8996a";
 const CONTOUR_INDEX: &str = "#7a5230";
 
-fn land_colour(z: f64) -> String {
-    let c = if z <= LAND[0].0 {
+/// The ramp's colour at `z` metres above the water, unrounded.
+pub(super) fn land_rgb(z: f64) -> [f64; 3] {
+    if z <= LAND[0].0 {
         LAND[0].1
     } else if let Some(w) = LAND.windows(2).find(|w| z <= w[1].0) {
         let ((z0, c0), (z1, c1)) = (w[0], w[1]);
@@ -41,8 +46,11 @@ fn land_colour(z: f64) -> String {
         [0, 1, 2].map(|k| c0[k] + (c1[k] - c0[k]) * t)
     } else {
         LAND[LAND.len() - 1].1
-    };
-    let [r, g, b] = c.map(|v| v.round_ties_even() as u8);
+    }
+}
+
+fn land_colour(z: f64) -> String {
+    let [r, g, b] = land_rgb(z).map(|v| v.round_ties_even() as u8);
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
@@ -92,11 +100,12 @@ fn tenths(t: i64) -> String {
 }
 
 /// The grid points of `columns` and `rows` in picture order, every `step`th
-/// point. `Game`: picture row 0 is the northernmost grid row (y largest), and
-/// x rises along it from the first column. `Sun`: picture row 0 is the last
-/// grid column (x largest), and y falls along it from the last row.
-fn picture_grid(
-    t: &Terrain,
+/// point, `at(c, r)` giving the value at column `c` (x rising) and row `r` (y
+/// rising). `Game`: picture row 0 is the northernmost grid row (y largest),
+/// and x rises along it from the first column. `Sun`: picture row 0 is the
+/// last grid column (x largest), and y falls along it from the last row.
+pub(super) fn picture_grid(
+    at: impl Fn(usize, usize) -> u16,
     step: usize,
     columns: RangeInclusive<usize>,
     rows: RangeInclusive<usize>,
@@ -115,8 +124,8 @@ fn picture_grid(
     let mut values = Vec::with_capacity(outer.len() * inner.len());
     for &o in &outer {
         values.extend(inner.iter().map(|&i| match north {
-            North::Game => t.at(i, o),
-            North::Sun => t.at(o, i),
+            North::Game => at(i, o),
+            North::Sun => at(o, i),
         }));
     }
     Grid {
@@ -127,7 +136,7 @@ fn picture_grid(
 }
 
 /// The grid columns and rows a crop's map box spans (all of them without one).
-fn grid_span(
+pub(super) fn grid_span(
     t: &Terrain,
     crop: Option<(f64, f64, f64, f64)>,
 ) -> (RangeInclusive<usize>, RangeInclusive<usize>) {
@@ -147,6 +156,68 @@ fn grid_span(
     )
 }
 
+/// The map point at the top-left corner of the cut grid's picture: the first
+/// column and last row, or with north to the left the last column and the
+/// last row. Metres, from the terrain's own size, not the header's.
+pub(super) fn grid_corner(
+    t: &Terrain,
+    columns: &RangeInclusive<usize>,
+    rows: &RangeInclusive<usize>,
+    north: North,
+) -> (f64, f64) {
+    let c = match north {
+        North::Game => *columns.start(),
+        North::Sun => *columns.end(),
+    };
+    let (tw, th) = t.size();
+    (
+        -f64::from(tw) / 2.0 + GRID_STEP * c as f64,
+        -f64::from(th) / 2.0 + GRID_STEP * *rows.end() as f64,
+    )
+}
+
+/// ` transform="translate(...)"` moving the layer to the cut grid's corner:
+/// the crop's, or the map's should the header give another map size.
+fn corner_shift(
+    t: &Terrain,
+    picture: &Picture,
+    columns: &RangeInclusive<usize>,
+    rows: &RangeInclusive<usize>,
+    north: North,
+) -> String {
+    let (u0, v0) = picture.pic(grid_corner(t, columns, rows, north));
+    if u0 != 0.0 || v0 != 0.0 {
+        format!(" transform=\"translate({} {})\"", fmt_g(u0), fmt_g(v0))
+    } else {
+        String::new()
+    }
+}
+
+/// The terrain as one shaded picture, a PNG in a data URI, its pixels
+/// `options.metres_per_pixel` apart.
+pub(super) fn write_raster(
+    out: &mut impl Write,
+    t: &Terrain,
+    picture: &Picture,
+    crop: Option<(f64, f64, f64, f64)>,
+    options: &SvgOptions,
+) -> io::Result<()> {
+    let (columns, rows) = grid_span(t, crop);
+    let shift = corner_shift(t, picture, &columns, &rows, options.north);
+    let sampling = Sampling::new(options.metres_per_pixel);
+    let (img, _) = raster::shade(t, columns, rows, sampling, options.north)?;
+    let png = raster::encode(&img, None)?;
+    write!(
+        out,
+        "{}<image width=\"{}\" height=\"{}\" xlink:href=\"data:image/png;base64,",
+        layer("terrain", "Terrain", &shift),
+        fmt_g(img.width as f64 * sampling.spacing),
+        fmt_g(img.height as f64 * sampling.spacing)
+    )?;
+    raster::write_base64(out, &png)?;
+    writeln!(out, "\"/></g>")
+}
+
 pub(super) fn write(
     out: &mut impl Write,
     t: &Terrain,
@@ -159,14 +230,8 @@ pub(super) fn write(
     let spacing = GRID_STEP * step as f64;
     let unit = f64::from(t.unit);
     let (columns, rows) = grid_span(t, crop);
-    // The cut grid's top-left corner: the first column and last row, or with
-    // north to the left the last column and the last row.
-    let corner_c = match options.north {
-        North::Game => *columns.start(),
-        North::Sun => *columns.end(),
-    };
-    let r1 = *rows.end();
-    let grid = picture_grid(t, step, columns, rows, options.north);
+    let shift = corner_shift(t, picture, &columns, &rows, options.north);
+    let grid = picture_grid(|c, r| t.at(c, r), step, columns, rows, options.north);
     let step_m = options.contour_step;
     let (rings, extent) = level_rings(
         &grid,
@@ -180,18 +245,6 @@ pub(super) fn write(
         .into_iter()
         .map(|(k, rs)| (k, rs.iter().map(|r| simplify(r, tolerance, true)).collect()))
         .collect();
-    // The cut grid's top-left corner: the crop's, or the map's should the
-    // header give another map size.
-    let (tw, th) = t.size();
-    let (u0, v0) = picture.pic((
-        -f64::from(tw) / 2.0 + GRID_STEP * corner_c as f64,
-        -f64::from(th) / 2.0 + GRID_STEP * r1 as f64,
-    ));
-    let shift = if u0 != 0.0 || v0 != 0.0 {
-        format!(" transform=\"translate({} {})\"", fmt_g(u0), fmt_g(v0))
-    } else {
-        String::new()
-    };
     let (w, h) = (
         (grid.width - 1) as f64 * spacing,
         (grid.height - 1) as f64 * spacing,
@@ -318,14 +371,15 @@ mod tests {
             water_level: 0.0,
             heights: (0..65 * 65).map(|i| (i / 65) as u16).collect(),
         };
-        let g = picture_grid(&t, 2, 0..=64, 0..=64, North::Game);
+        let at = |c, r| t.at(c, r);
+        let g = picture_grid(at, 2, 0..=64, 0..=64, North::Game);
         assert_eq!((g.width, g.height), (33, 33));
         // Row 0 of the picture is the last grid row (y largest).
         assert_eq!(g.values[0], 64);
         assert_eq!(g.values[g.width * 32], 0);
         // A part of it, turned for the sun: picture row 0 is column 40, and
         // along it the rows fall from 30.
-        let g = picture_grid(&t, 1, 10..=40, 20..=30, North::Sun);
+        let g = picture_grid(at, 1, 10..=40, 20..=30, North::Sun);
         assert_eq!((g.width, g.height), (11, 31));
         assert_eq!(&g.values[..3], &[30, 29, 28]);
         assert_eq!(g.values[g.width * 30 + 10], 20);

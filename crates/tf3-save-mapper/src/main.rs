@@ -1,4 +1,4 @@
-//! Command-line front end for `tf3-save-mapper-core`: arguments in, SVG file out.
+//! Command-line front end for `tf3-save-mapper-core`: arguments in, SVG (or PNG) file out.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -14,7 +14,7 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, edge_ids,
     industry_models, read_edges, read_free_ids, read_header, read_instances, read_model_table,
-    read_strips, read_terrain, retain_live, write_svg,
+    read_strips, read_terrain, retain_live, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -23,14 +23,22 @@ Draw an SVG map of a Transport Fever 3 save. Unofficial; never writes a save.
 Usage: tf3map [OPTIONS] SAVE.sav
 
 Options:
-  -o, --output FILE   where to write the SVG (default: the save's name with .svg, in the current folder)
-      --crop X,Y,R    draw only the square of half-width R metres round map point X,Y, at 4 m per
-                      pixel (the whole map is 8)
+  -o, --output FILE   where to write the map (default: the save's name with .svg, or .png with --png,
+                      in the current folder)
+      --crop X,Y,R    draw only the square of half-width R metres round map point X,Y
+      --mpp M         metres per pixel: 1 or 2 (with --crop only), or a multiple of 4 (default 8 for
+                      the whole map's vector terrain, 4 on a crop and with --raster or --png); the
+                      terrain is cut from every (M / 4)th point of the 4 m heightmap
+      --raster        draw the terrain as one shaded picture embedded in the SVG (height colours, hill
+                      shading, water) instead of vector bands, water and height lines
+      --png           write one flat PNG instead of the SVG: the --raster terrain with the roads and
+                      rails drawn into its pixels, and nothing else (no stations, depots, industries,
+                      grid or rose); a tf3map:view text chunk says where it lies on the map
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
-      --contour M     metres between height lines and height bands (default 20)
-      --no-bands      leave out the coloured height bands
+      --contour M     metres between height lines and height bands (default 20; vector terrain)
+      --no-bands      leave out the coloured height bands (vector terrain)
       --no-terrain    leave out the terrain
       --no-industries leave out the industries
       --no-depots     leave out the depots and maintenance buildings
@@ -68,13 +76,34 @@ const MAP_MARGIN: f64 = 200.0;
 /// The closest height lines may be, metres: closer, a mountain is thousands of lines.
 const MIN_CONTOUR: f64 = 1.0;
 /// Metres per pixel on a crop: the heightmap's own spacing.
-const CROP_METRES_PER_PIXEL: f64 = 4.0;
+const CROP_METRES_PER_PIXEL: u32 = 4;
+/// Metres per pixel of the whole map's vector terrain.
+const WHOLE_METRES_PER_PIXEL: u32 = 8;
+/// Metres per pixel of a raster terrain: the heightmap's own spacing.
+const RASTER_METRES_PER_PIXEL: u32 = 4;
+/// Options for the vector terrain only.
+const VECTOR_ONLY: &[&str] = &["--contour", "--no-bands"];
+/// Options for what only the SVG draws.
+const SVG_ONLY: &[&str] = &[
+    "--zoom",
+    "--rose",
+    "--rose-size",
+    "--grid",
+    "--grid-lines",
+    "--grid-dot-step",
+    "--vehicles",
+    "--name",
+    "--label",
+    "--edge-ids",
+];
 
 struct Args {
     save: PathBuf,
     output: PathBuf,
     options: SvgOptions,
     keep_dead: bool,
+    /// Write a flat PNG, not an SVG.
+    png: bool,
     game: Option<PathBuf>,
     terrain: bool,
     industries: bool,
@@ -99,9 +128,18 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut game = None;
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     let (mut grid, mut no_grid) = (None, false);
+    let mut mpp = None;
+    let (mut vector_only, mut svg_only) = (Vec::new(), Vec::new());
+    let mut png = false;
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
     while let Some(arg) = args.next() {
+        if VECTOR_ONLY.contains(&arg.as_str()) {
+            vector_only.push(arg.clone());
+        }
+        if SVG_ONLY.contains(&arg.as_str()) {
+            svg_only.push(arg.clone());
+        }
         let mut value = |name: &str| args.next().ok_or(format!("{name} needs a value"));
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Exit(USAGE.into())),
@@ -112,10 +150,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
                 )));
             }
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
-            "--crop" => {
-                options.crop = Some(crop(&value("--crop")?)?);
-                options.metres_per_pixel = CROP_METRES_PER_PIXEL;
-            }
+            "--crop" => options.crop = Some(crop(&value("--crop")?)?),
+            "--mpp" => mpp = Some(metres_per_pixel(&value("--mpp")?)?),
             "--zoom" => options.zoom = zoom(&value("--zoom")?)?,
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
@@ -123,6 +159,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--contour" => options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?,
             "--game" => game = Some(PathBuf::from(value("--game")?)),
             "--no-bands" => options.bands = false,
+            "--raster" => options.raster = true,
+            "--png" => png = true,
             "--no-terrain" => terrain = false,
             "--no-industries" => industries = false,
             "--no-depots" => depots = false,
@@ -151,6 +189,36 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
     }
     let save = save.ok_or("no save given (try --help)")?;
+    let mpp = match mpp {
+        Some(m) if m < 4 && options.crop.is_none() => {
+            return Err(format!("--mpp {m} needs --crop"));
+        }
+        Some(m) => m,
+        None if options.crop.is_some() => CROP_METRES_PER_PIXEL,
+        None if options.raster || png => RASTER_METRES_PER_PIXEL,
+        None => WHOLE_METRES_PER_PIXEL,
+    };
+    if png {
+        if options.raster {
+            return Err("--raster and --png both draw the terrain as pixels: pick one".into());
+        }
+        if let Some(flag) = svg_only.first().or(vector_only.first()) {
+            return Err(format!("{flag} works with the SVG, not --png"));
+        }
+        // A flat picture of the terrain and the network: no other layer.
+        (industries, depots, stations) = (false, false, false);
+        (grid, no_grid) = (None, true);
+        options.rose = None;
+    }
+    if options.raster {
+        if !terrain {
+            return Err("--raster draws the terrain: not with --no-terrain".into());
+        }
+        if let Some(flag) = vector_only.first() {
+            return Err(format!("{flag} is for the vector terrain, not --raster"));
+        }
+    }
+    options.metres_per_pixel = f64::from(mpp);
     options.grid = match (grid, no_grid) {
         (Some(_), true) => return Err("--no-grid and --grid exclude each other".into()),
         (Some(step), false) => GridStep::Every(step),
@@ -161,13 +229,19 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         (None, false) => GridStep::Auto,
     };
     // From the whole name: `Map v1.5.sav` gives `Map v1.5.svg`, not `Map v1.svg`.
-    let output = output
-        .unwrap_or_else(|| Path::new(save.file_name().unwrap_or_default()).with_extension("svg"));
+    let output = output.unwrap_or_else(|| {
+        Path::new(save.file_name().unwrap_or_default()).with_extension(if png {
+            "png"
+        } else {
+            "svg"
+        })
+    });
     Ok(Parsed::Run(Box::new(Args {
         save,
         output,
         options,
         keep_dead,
+        png,
         game,
         terrain,
         industries,
@@ -275,6 +349,16 @@ fn zoom(text: &str) -> Result<u32, String> {
         Ok(n) if n >= 1 => Ok(n),
         _ => Err(format!(
             "--zoom wants a whole number, 1 or more, not {text:?}"
+        )),
+    }
+}
+
+/// Metres per pixel: 1, 2 or a multiple of 4, the heightmap's spacing.
+fn metres_per_pixel(text: &str) -> Result<u32, String> {
+    match text.parse::<u32>() {
+        Ok(m) if m == 1 || m == 2 || (m >= 4 && m % 4 == 0) => Ok(m),
+        _ => Err(format!(
+            "--mpp wants 1, 2 or a multiple of 4 (the heightmap's spacing), not {text:?}"
         )),
     }
 }
@@ -546,12 +630,28 @@ fn write_output(
         }
     };
     let mut out = BufWriter::new(file);
-    let written = write_svg(&mut out, header, edges, layers, &args.options)
+    let drawn = if args.png {
+        write_png(
+            &mut out,
+            header,
+            edges,
+            layers.terrain.as_ref(),
+            &args.options,
+        )
+    } else {
+        write_svg(&mut out, header, edges, layers, &args.options)
+    };
+    let written = drawn
         .and_then(|()| out.flush())
         .and_then(|()| std::fs::rename(&temp, &args.output));
     if let Err(e) = written {
         let _ = std::fs::remove_file(&temp);
-        return Err(cannot_write(e));
+        // A map that cannot be drawn as asked (a picture too big) says so itself.
+        return Err(if e.kind() == std::io::ErrorKind::InvalidInput {
+            e.to_string()
+        } else {
+            cannot_write(e)
+        });
     }
     Ok(())
 }
@@ -757,6 +857,90 @@ mod tests {
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
         assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
         assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
+    }
+
+    #[test]
+    fn metres_per_pixel_are_read_whatever_the_order() {
+        let mpp = |args: &[&str]| run_args(args).options.metres_per_pixel;
+        assert_eq!(mpp(&["s.sav", "--mpp", "16"]), 16.0);
+        assert_eq!(mpp(&["s.sav", "--mpp", "2", "--crop", "0,0,100"]), 2.0);
+        assert_eq!(mpp(&["s.sav", "--crop", "0,0,100", "--mpp", "1"]), 1.0);
+        assert_eq!(mpp(&["s.sav", "--crop", "0,0,100", "--mpp", "12"]), 12.0);
+        for bad in ["0", "3", "6", "2.5", "-4", "four"] {
+            assert!(parse(&["s.sav", "--mpp", bad]).is_err(), "{bad}");
+        }
+        let finer = parse(&["s.sav", "--mpp", "2"]);
+        assert!(matches!(finer, Err(e) if e.contains("needs --crop")));
+    }
+
+    #[test]
+    fn a_raster_terrain_is_drawn_at_4_m_per_pixel() {
+        let a = run_args(&["s.sav", "--raster"]);
+        assert!(a.options.raster && a.terrain);
+        assert_eq!(a.options.metres_per_pixel, 4.0);
+        assert_eq!(a.output, Path::new("s.svg"));
+        let a = run_args(&["s.sav", "--mpp", "16", "--raster"]);
+        assert_eq!(a.options.metres_per_pixel, 16.0);
+        assert!(!run_args(&["s.sav"]).options.raster, "vector by default");
+        for bad in [
+            &["s.sav", "--raster", "--no-terrain"][..],
+            &["s.sav", "--raster", "--no-bands"],
+            &["s.sav", "--contour", "10", "--raster"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_png_has_the_terrain_and_the_network_only() {
+        let a = run_args(&["dir/s.sav", "--png"]);
+        assert!(a.png && a.terrain && !a.options.raster);
+        assert!(!a.industries && !a.depots && !a.stations);
+        assert_eq!(a.options.grid, GridStep::Off);
+        assert_eq!(a.options.rose, None);
+        assert_eq!(a.options.metres_per_pixel, 4.0);
+        assert_eq!(a.output, Path::new("s.png"));
+        let a = run_args(&[
+            "s.sav",
+            "--png",
+            "--crop",
+            "0,0,100",
+            "--mpp",
+            "1",
+            "--no-terrain",
+        ]);
+        assert_eq!(a.options.metres_per_pixel, 1.0);
+        assert!(!a.terrain);
+        assert!(
+            !run_args(&["s.sav", "--png", "--no-grid", "--no-rose"])
+                .options
+                .raster
+        );
+        for bad in [
+            &["s.sav", "--png", "--raster"][..],
+            &["s.sav", "--vehicles", "--png"],
+            &["s.sav", "--png", "--label", "1>2"],
+            &["s.sav", "--png", "--grid", "100"],
+            &["s.sav", "--png", "--rose", "upper-left"],
+            &["s.sav", "--png", "--zoom", "2"],
+            &["s.sav", "--png", "--contour", "10"],
+        ] {
+            assert!(parse(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_png_is_written_as_a_png() {
+        let dir = test_dir("png");
+        let output = dir.join("map.png");
+        let args = run_args(&["absent.sav", "--png", "-o", output.to_str().unwrap()]);
+        write_output(&args, &test_header(), &[], &Layers::default()).unwrap();
+        assert!(
+            std::fs::read(&output)
+                .unwrap()
+                .starts_with(b"\x89PNG\r\n\x1a\n")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

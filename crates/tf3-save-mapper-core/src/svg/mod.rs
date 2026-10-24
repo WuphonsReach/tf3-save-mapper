@@ -9,11 +9,15 @@
 //! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
 //! `vehicles`, `labels`, `grid-labels` and `compass`.
+//!
+//! `write_png` draws the map as one flat PNG instead: the raster terrain with
+//! the roads and rails drawn into its pixels, as the prototype's `--png` does.
 
 mod depots;
 mod grid;
 mod industries;
 mod labels;
+mod raster;
 mod rose;
 mod stations;
 mod terrain;
@@ -38,6 +42,8 @@ const ROAD_COLOUR: &str = "#323232";
 const RAIL_COLOUR: &str = "#cd1e1e";
 /// Plain paper under the network, so the dark roads read in a viewer with a dark theme.
 const BACKGROUND_COLOUR: &str = "#ffffff";
+/// The same paper in a PNG without terrain.
+const PAPER: [u8; 3] = [255, 255, 255];
 /// A bend shows as a curve only above this many metres of bulge.
 const CURVE_TOLERANCE: f64 = 0.25;
 /// The outline of a station, depot or industry footprint, metres.
@@ -62,6 +68,9 @@ pub struct SvgOptions {
     pub index_every: u32,
     /// Fill the height bands with a colour ramp; without, the land is one colour.
     pub bands: bool,
+    /// Draw the terrain as one shaded picture (an embedded PNG) instead of
+    /// vector bands, water and height lines.
+    pub raster: bool,
     /// Where the compass rose goes, if anywhere.
     pub rose: Option<Rose>,
     /// The rose circle's diameter, metres. Default 250, at most an eighth of
@@ -92,6 +101,7 @@ impl Default for SvgOptions {
             contour_step: 20.0,
             index_every: 5,
             bands: true,
+            raster: false,
             rose: Some(Rose::LowerRight),
             rose_size: None,
             north: North::Game,
@@ -379,8 +389,10 @@ pub fn write_svg(
         layer("background", "Background", ""),
         corner_attrs(&view)
     )?;
-    if let Some(t) = &layers.terrain {
-        terrain::write(out, t, &picture, crop, options)?;
+    match &layers.terrain {
+        Some(t) if options.raster => terrain::write_raster(out, t, &picture, crop, options)?,
+        Some(t) => terrain::write(out, t, &picture, crop, options)?,
+        None => {}
     }
     let step = match options.grid {
         GridStep::Off => None,
@@ -449,6 +461,108 @@ pub fn write_svg(
         )?;
     }
     writeln!(out, "</svg>")
+}
+
+/// Write the map as one flat PNG: the raster terrain (plain paper without
+/// one) at `options.metres_per_pixel`, the whole map or the crop, with the
+/// roads and then the rails drawn into its pixels, each as wide as its lanes
+/// and at least one pixel. Nothing else is drawn. A `tf3map:view` text chunk
+/// records where the picture lies on the map (`view_record`).
+pub fn write_png(
+    out: &mut impl Write,
+    header: &Header,
+    edges: &[Edge],
+    terrain: Option<&Terrain>,
+    options: &SvgOptions,
+) -> io::Result<()> {
+    let crop = match options.crop {
+        Some(c) => Some(c.bounds(header).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the crop lies outside the map")
+        })?),
+        None => None,
+    };
+    let sampling = raster::Sampling::new(options.metres_per_pixel);
+    let (mut img, corner) = match terrain {
+        Some(t) => {
+            let (columns, rows) = terrain::grid_span(t, crop);
+            raster::shade(t, columns, rows, sampling, options.north)?
+        }
+        None => {
+            let (w, h) = (f64::from(header.map_width), f64::from(header.map_height));
+            let b = crop.unwrap_or((-w / 2.0, w / 2.0, -h / 2.0, h / 2.0));
+            let points = |lo: f64, hi: f64| ((hi - lo) / GRID_STEP).round() as usize + 1;
+            let size = sampling.size(points(b.0, b.1), points(b.2, b.3), options.north);
+            (
+                raster::blank(size, PAPER)?,
+                raster::Corner::of_box(options.north, b),
+            )
+        }
+    };
+    let size = (img.width, img.height);
+    // On a crop, the edges that may show in the picture; on the whole map all,
+    // since a runway can reach past the map's edge.
+    let view = View::new(
+        &Picture::new(header, options.north),
+        corner.bounds(size, sampling.spacing),
+    );
+    let edges: Vec<&Edge> = edges
+        .iter()
+        .filter(|e| crop.is_none() || view.touches(e))
+        .collect();
+    raster::draw_network(&mut img, &corner, sampling.spacing, &edges, |e| {
+        edge_width(e, options)
+    });
+    let record = view_record(header, &corner, size, sampling.spacing, options);
+    out.write_all(&raster::encode(&img, Some(("tf3map:view", record)))?)
+}
+
+/// Where a PNG lies on the map, as one JSON object with the prototype's view
+/// record names: the map's size, the metres per pixel, which way north is,
+/// the map box the picture spans (and for `North::Sun` the map point at its
+/// top-left corner), the crop if any, and the tool that drew it.
+fn view_record(
+    header: &Header,
+    corner: &raster::Corner,
+    size: (usize, usize),
+    spacing: f64,
+    options: &SvgOptions,
+) -> String {
+    let (x_min, x_max, y_min, y_max) = corner.bounds(size, spacing);
+    let text = |t: &str| format!("\"{t}\"");
+    let (orientation, north) = match options.north {
+        North::Game => ("north-up (game): image up is +y, image right is +x", "game"),
+        North::Sun => ("north-up (sun): image up is +x, image right is -y", "sun"),
+    };
+    let mut fields = vec![
+        ("map-width", header.map_width.to_string()),
+        ("map-height", header.map_height.to_string()),
+        ("metres-per-pixel", fmt_g(options.metres_per_pixel)),
+        ("orientation", text(orientation)),
+        ("north", text(north)),
+        ("x-min", fmt_g(x_min)),
+        ("x-max", fmt_g(x_max)),
+        ("y-min", fmt_g(y_min)),
+        ("y-max", fmt_g(y_max)),
+    ];
+    if options.north == North::Sun {
+        fields.extend([("x-top", fmt_g(x_max)), ("y-left", fmt_g(y_max))]);
+    }
+    if let Some(c) = options.crop {
+        fields.extend([
+            ("crop-x", fmt_g(c.x)),
+            ("crop-y", fmt_g(c.y)),
+            ("crop-radius", fmt_g(c.radius)),
+        ]);
+    }
+    fields.extend([
+        ("generator", text("tf3map")),
+        ("generator-version", text(env!("CARGO_PKG_VERSION"))),
+    ]);
+    let body: Vec<String> = fields
+        .iter()
+        .map(|(k, v)| format!("\"{k}\": {v}"))
+        .collect();
+    format!("{{{}}}", body.join(", "))
 }
 
 fn write_lines(out: &mut impl Write, lines: &[String]) -> io::Result<()> {
