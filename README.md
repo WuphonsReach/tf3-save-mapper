@@ -29,6 +29,7 @@ tf3map SAVE.sav -o map.svg
 
 Options (`tf3map --help` lists them all):
 
+- `--crop X,Y,R` draws only the square of half-width R metres round the map point X,Y (x east, y north, 0,0 the map's centre), at 4 m per pixel instead of 8. The picture keeps the whole map's frame, so its `viewBox` starts at the crop's corner. `--zoom N` makes the picture N times larger on screen.
 - `--game DIR`: the game's install folder, the one holding `base/`. By default the usual Steam folders and their library folders are tried.
 - `--contour M` sets the metres between height lines and bands (default 20); `--no-bands` leaves the colour bands out.
 - `--no-terrain`, `--no-industries`, `--no-depots`, `--no-stations` and `--no-rose` leave a layer out.

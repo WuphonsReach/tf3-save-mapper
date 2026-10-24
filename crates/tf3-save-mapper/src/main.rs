@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
-use tf3_save_mapper_core::svg::{GridLines, GridStep, faces_with_measured, is_station_piece};
+use tf3_save_mapper_core::svg::{Crop, GridLines, GridStep, faces_with_measured, is_station_piece};
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, SvgOptions, container, industry_models,
     read_edges, read_free_ids, read_header, read_instances, read_model_table, read_terrain,
@@ -20,6 +20,9 @@ Usage: tf3map [OPTIONS] SAVE.sav
 
 Options:
   -o, --output FILE   where to write the SVG (default: the save's name with .svg, in the current folder)
+      --crop X,Y,R    draw only the square of half-width R metres round map point X,Y, at 4 m per
+                      pixel (the whole map is 8)
+      --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
       --contour M     metres between height lines and height bands (default 20)
@@ -48,6 +51,8 @@ Options:
 const MAP_MARGIN: f64 = 200.0;
 /// The closest height lines may be, metres: closer, a mountain is thousands of lines.
 const MIN_CONTOUR: f64 = 1.0;
+/// Metres per pixel on a crop: the heightmap's own spacing.
+const CROP_METRES_PER_PIXEL: f64 = 4.0;
 
 struct Args {
     save: PathBuf,
@@ -85,6 +90,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
                 )));
             }
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
+            "--crop" => {
+                options.crop = Some(crop(&value("--crop")?)?);
+                options.metres_per_pixel = CROP_METRES_PER_PIXEL;
+            }
+            "--zoom" => options.zoom = zoom(&value("--zoom")?)?,
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
             "--min-width" => options.min_width = metres(&value("--min-width")?, 0.0)?,
@@ -139,6 +149,33 @@ fn width(text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(w) if w.is_finite() && w > 0.0 => Ok(w),
         _ => Err(format!("want a number of metres above 0, not {text:?}")),
+    }
+}
+
+/// `X,Y,R` in metres, R above 0.
+fn crop(text: &str) -> Result<Crop, String> {
+    let v: Vec<f64> = text
+        .split(',')
+        .map(|n| n.trim().parse::<f64>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| format!("--crop wants X,Y,R in metres, not {text:?}"))?;
+    match v[..] {
+        [x, y, radius] if v.iter().all(|n| n.is_finite()) && radius > 0.0 => {
+            Ok(Crop { x, y, radius })
+        }
+        _ => Err(format!(
+            "--crop wants X,Y,R in metres, R above 0, not {text:?}"
+        )),
+    }
+}
+
+/// A zoom: a whole number, 1 or more.
+fn zoom(text: &str) -> Result<u32, String> {
+    match text.parse::<u32>() {
+        Ok(n) if n >= 1 => Ok(n),
+        _ => Err(format!(
+            "--zoom wants a whole number, 1 or more, not {text:?}"
+        )),
     }
 }
 
@@ -199,6 +236,14 @@ fn run(args: Args) -> Result<(), String> {
     let cannot_read = |e: tf3_save_mapper_core::Error| format!("cannot read the save: {e}");
     let stream = container::decompress(file).map_err(cannot_read)?;
     let header = read_header(&stream).map_err(cannot_read)?;
+    if let Some(c) = args.options.crop
+        && c.bounds(&header).is_none()
+    {
+        return Err(format!(
+            "the crop lies outside the map ({} x {} m, centred on 0,0)",
+            header.map_width, header.map_height
+        ));
+    }
     let mut edges = read_edges(&stream).map_err(cannot_read)?;
 
     let mut dropped = 0;
@@ -481,6 +526,27 @@ mod tests {
         assert!(parse(&["s.sav", "--grid", "100", "--no-grid"]).is_err());
         assert!(parse(&["s.sav", "--no-grid", "--grid-lines", "faint"]).is_err());
         assert!(parse(&["s.sav", "--grid-lines", "solid"]).is_err());
+    }
+
+    #[test]
+    fn a_crop_is_drawn_at_4_m_per_pixel() {
+        let a = run_args(&["s.sav", "--crop", "-120.5,300,250", "--zoom", "3"]);
+        assert_eq!(
+            a.options.crop,
+            Some(Crop {
+                x: -120.5,
+                y: 300.0,
+                radius: 250.0
+            })
+        );
+        assert_eq!(a.options.metres_per_pixel, 4.0);
+        assert_eq!(a.options.zoom, 3);
+        assert_eq!(run_args(&["s.sav"]).options.metres_per_pixel, 8.0);
+        for bad in ["1,2", "1,2,0", "1,2,-5", "a,b,c", "1,2,3,4", "1,2,inf"] {
+            assert!(parse(&["s.sav", "--crop", bad]).is_err(), "{bad}");
+        }
+        assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
+        assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
     }
 
     #[test]

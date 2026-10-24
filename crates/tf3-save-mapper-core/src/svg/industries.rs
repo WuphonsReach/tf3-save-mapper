@@ -140,6 +140,22 @@ pub fn faces_with_measured(install_faces: HashMap<String, Polygon>) -> HashMap<S
     faces
 }
 
+/// Metres from an industry's origin within which it may show: its badge,
+/// its footprint's corners and its round parts.
+pub(super) fn reach(key: &str, faces: &HashMap<String, Polygon>) -> f64 {
+    let corners = faces
+        .get(key)
+        .into_iter()
+        .flatten()
+        .map(|&(a, b)| a.hypot(b));
+    let discs = MEASURED_DISCS
+        .iter()
+        .filter(|(k, _)| *k == key)
+        .flat_map(|(_, d)| d.iter())
+        .map(|&(a, b, r)| a.hypot(b) + r);
+    corners.chain(discs).fold(DIAMETER / 2.0, f64::max)
+}
+
 /// The badge of a footprint: its centre in the industry's axes and its diameter.
 fn face_badge(face: &[(f64, f64)]) -> ((f64, f64), f64) {
     let (a0, a1, b0, b1) = bounds(face);

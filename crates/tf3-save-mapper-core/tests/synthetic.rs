@@ -6,7 +6,7 @@ use common::{
     EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL, PIT,
     TRACK_LANES,
 };
-use tf3_save_mapper_core::svg::{GridLines, GridStep};
+use tf3_save_mapper_core::svg::{Crop, GridLines, GridStep};
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, industry_models, read_edges, read_free_ids, read_header,
     read_instances, read_model_table, read_terrain, retain_live, write_svg,
@@ -323,6 +323,83 @@ fn a_finer_grid_has_minor_marks_under_the_kilometre_ones() {
     // Minor lines are the multiples of 250 m that are not of 1000 m: 12 up, 6 across.
     assert_eq!(minor.matches("stroke-dashoffset").count(), 18, "{minor}");
     assert!(svg.contains(">x 250</text>"));
+}
+
+#[test]
+fn a_crop_keeps_the_map_frame_and_draws_only_what_shows() {
+    let svg = render(&SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 4.0,
+        zoom: 2,
+        ..SvgOptions::default()
+    });
+    // Widened to the 4 m grid: x -1020 to -780, y 328 to 572, so the
+    // picture's corner is at (-1020 + 2048, 1024 - 572) in map frame metres.
+    assert!(
+        svg.contains("width=\"120\" height=\"122\" viewBox=\"1028 452 240 244\""),
+        "{svg}"
+    );
+    assert!(svg.contains("<rect x=\"1028\" y=\"452\" width=\"240\" height=\"244\""));
+    // The first edge keeps its whole-map coordinates.
+    assert!(svg.contains("d=\"M1048.0 524.0L1148.0 524.0\""));
+    // Four edges reach the crop; the one from (-760, 430) on and the farm do not.
+    assert_eq!(svg.matches("<path data-a").count(), 4, "{svg}");
+    assert!(!svg.contains("data-a=\"68\""));
+    assert!(!svg.contains("id=\"industries\""));
+    // The terrain is cut from the crop's part of the grid only.
+    assert!(svg.contains("id=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\" transform=\"translate(1028 452)\""));
+    assert!(svg.contains("<rect width=\"240\" height=\"244\""));
+    // The default grid on a crop: a third of 240 m, rounded down to 50 m.
+    assert!(svg.contains("Grid 50 m"));
+    assert!(svg.contains(">x -900</text>"));
+}
+
+#[test]
+fn a_crop_round_the_farm_draws_it() {
+    let svg = render(&SvgOptions {
+        crop: Some(Crop {
+            x: f64::from(FARM_AT.0) + 60.0,
+            y: f64::from(FARM_AT.1),
+            radius: 40.0,
+        }),
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    });
+    // The badge is 64 m across on the origin, 60 m west of the crop's centre.
+    assert!(svg.contains("id=\"industry-farm\""), "{svg}");
+    assert_eq!(svg.matches("<path data-a").count(), 0);
+}
+
+#[test]
+fn a_crop_off_the_map_is_refused() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let crop = Crop {
+        x: 5000.0,
+        y: 0.0,
+        radius: 100.0,
+    };
+    assert_eq!(crop.bounds(&header), None);
+    let options = SvgOptions {
+        crop: Some(crop),
+        ..SvgOptions::default()
+    };
+    let err = write_svg(&mut Vec::new(), &header, &[], &Layers::default(), &options).unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    // A crop that reaches past the edge is cut to the map.
+    let edge = Crop {
+        x: 2000.0,
+        y: -1000.0,
+        radius: 100.0,
+    };
+    assert_eq!(
+        edge.bounds(&header),
+        Some((1900.0, 2048.0, -1024.0, -900.0))
+    );
 }
 
 #[test]

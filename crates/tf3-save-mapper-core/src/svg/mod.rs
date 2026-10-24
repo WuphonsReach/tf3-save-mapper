@@ -24,7 +24,7 @@ use crate::edges::{Edge, Family};
 use crate::header::Header;
 use crate::install::{DepotSpec, Polygon, Rect};
 use crate::instances::Instance;
-use crate::terrain::Terrain;
+use crate::terrain::{GRID_STEP, Terrain};
 
 pub use grid::{GridLines, GridStep};
 pub use industries::faces_with_measured;
@@ -66,6 +66,11 @@ pub struct SvgOptions {
     pub grid_lines: GridLines,
     /// Metres between the dots of a dotted minor grid line.
     pub grid_dot_step: f64,
+    /// Draw only this part of the map. The picture keeps the whole map's
+    /// frame (metres from its top-left corner), and its `viewBox` is the crop.
+    pub crop: Option<Crop>,
+    /// The picture's width and height in pixels are multiplied by this.
+    pub zoom: u32,
 }
 
 impl Default for SvgOptions {
@@ -82,7 +87,48 @@ impl Default for SvgOptions {
             grid: GridStep::Auto,
             grid_lines: GridLines::Auto,
             grid_dot_step: 25.0,
+            crop: None,
+            zoom: 1,
         }
+    }
+}
+
+/// A square part of the map: half-width `radius` metres round (`x`, `y`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Crop {
+    pub x: f64,
+    pub y: f64,
+    pub radius: f64,
+}
+
+impl Crop {
+    /// The map box the crop shows, `(x_min, x_max, y_min, y_max)` in metres:
+    /// the square widened to the heightmap's 4 m grid and cut to the map.
+    /// `None` when less than two grid steps of it lie on the map.
+    pub fn bounds(&self, header: &Header) -> Option<(f64, f64, f64, f64)> {
+        let (w, h) = (f64::from(header.map_width), f64::from(header.map_height));
+        let (cols, rows) = ((w / GRID_STEP).floor(), (h / GRID_STEP).floor());
+        let c0 = ((self.x - self.radius + w / 2.0) / GRID_STEP)
+            .floor()
+            .max(0.0);
+        let c1 = ((self.x + self.radius + w / 2.0) / GRID_STEP)
+            .ceil()
+            .min(cols);
+        let r0 = ((self.y - self.radius + h / 2.0) / GRID_STEP)
+            .floor()
+            .max(0.0);
+        let r1 = ((self.y + self.radius + h / 2.0) / GRID_STEP)
+            .ceil()
+            .min(rows);
+        if !(c1 - c0 >= 2.0 && r1 - r0 >= 2.0) {
+            return None;
+        }
+        Some((
+            -w / 2.0 + GRID_STEP * c0,
+            -w / 2.0 + GRID_STEP * c1,
+            -h / 2.0 + GRID_STEP * r0,
+            -h / 2.0 + GRID_STEP * r1,
+        ))
     }
 }
 
@@ -157,6 +203,27 @@ impl View {
         let (w, h) = (f64::from(header.map_width), f64::from(header.map_height));
         View::new(picture, (-w / 2.0, w / 2.0, -h / 2.0, h / 2.0))
     }
+
+    /// Whether something within `reach` metres of (`x`, `y`) may show.
+    fn reaches(&self, x: f64, y: f64, reach: f64) -> bool {
+        self.x_min - reach <= x
+            && x <= self.x_max + reach
+            && self.y_min - reach <= y
+            && y <= self.y_max + reach
+    }
+
+    /// Whether the edge may show: the box of its curve's control points,
+    /// which holds the curve, meets the view.
+    fn touches(&self, e: &Edge) -> bool {
+        let c = e.bezier();
+        let (xs, ys) = (c.map(|p| p.0), c.map(|p| p.1));
+        let max = |v: [f64; 4]| v.into_iter().fold(f64::MIN, f64::max);
+        let min = |v: [f64; 4]| v.into_iter().fold(f64::MAX, f64::min);
+        max(xs) >= self.x_min
+            && min(xs) <= self.x_max
+            && max(ys) >= self.y_min
+            && min(ys) <= self.y_max
+    }
 }
 
 /// The opening tag of a layer: a group Inkscape shows as one.
@@ -182,20 +249,51 @@ pub fn write_svg(
         width: w,
         height: h,
     };
-    let view = View::whole(&picture, header);
+    let crop = match options.crop {
+        Some(c) => Some(c.bounds(header).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "the crop lies outside the map")
+        })?),
+        None => None,
+    };
+    let view = crop.map_or_else(|| View::whole(&picture, header), |b| View::new(&picture, b));
     let (w, h) = (view.width, view.height);
+    // On a crop, only what may show in it.
+    let shows = |i: &Instance, reach: f64| crop.is_none() || view.reaches(i.x, i.y, reach);
+    let edges: Vec<&Edge> = edges
+        .iter()
+        .filter(|e| crop.is_none() || view.touches(e))
+        .collect();
+    let station_rows: Vec<Instance> = layers
+        .stations
+        .iter()
+        .filter(|i| shows(i, stations::reach(&i.model, &layers.station_boxes)))
+        .cloned()
+        .collect();
+    let depot_rows: Vec<Instance> = layers
+        .depots
+        .iter()
+        .filter(|i| shows(i, depots::REACH))
+        .cloned()
+        .collect();
+    let industry_rows: Vec<(Instance, String)> = layers
+        .industries
+        .iter()
+        .filter(|(i, key)| shows(i, industries::reach(key, &layers.industry_faces)))
+        .cloned()
+        .collect();
 
+    let zoom = f64::from(options.zoom.max(1));
     writeln!(
         out,
         "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" \
          xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" \
          width=\"{}\" height=\"{}\" viewBox=\"{} {} {} {}\">",
-        (w / options.metres_per_pixel).ceil(),
-        (h / options.metres_per_pixel).ceil(),
-        view.u0,
-        view.v0,
-        w,
-        h
+        (w / options.metres_per_pixel).ceil() * zoom,
+        (h / options.metres_per_pixel).ceil() * zoom,
+        fmt_g(view.u0),
+        fmt_g(view.v0),
+        fmt_g(w),
+        fmt_g(h)
     )?;
     writeln!(out, "<title>{}</title>", title(layers))?;
     writeln!(out, "<desc>{}</desc>", escape(&description(header)))?;
@@ -206,12 +304,15 @@ pub fn write_svg(
         corner_attrs(&view)
     )?;
     if let Some(t) = &layers.terrain {
-        terrain::write(out, t, &picture, options)?;
+        terrain::write(out, t, &picture, crop, options)?;
     }
     let step = match options.grid {
         GridStep::Off => None,
         GridStep::Auto => {
-            let step = grid::auto_step(w.min(h), false);
+            let step = match options.crop {
+                Some(c) => grid::auto_step(2.0 * c.radius, true),
+                None => grid::auto_step(w.min(h), false),
+            };
             Some((step, step))
         }
         GridStep::Every(step) => Some((step, grid::MAJOR)),
@@ -233,17 +334,17 @@ pub fn write_svg(
         None => Vec::new(),
     };
     let (stations_under, stations_over) =
-        stations::layers(&picture, &layers.stations, &layers.station_boxes);
+        stations::layers(&picture, &station_rows, &layers.station_boxes);
     write_lines(out, &stations_under)?;
-    write_network(out, &picture, edges, options)?;
+    write_network(out, &picture, &edges, options)?;
     write_lines(
         out,
-        &depots::layers(&picture, &layers.depots, &layers.depot_specs),
+        &depots::layers(&picture, &depot_rows, &layers.depot_specs),
     )?;
     write_lines(out, &stations_over)?;
     write_lines(
         out,
-        &industries::layers(&picture, &layers.industries, &layers.industry_faces),
+        &industries::layers(&picture, &industry_rows, &layers.industry_faces),
     )?;
     write_lines(out, &grid_labels)?;
     if options.rose {
@@ -280,7 +381,7 @@ fn edge_width(e: &Edge, options: &SvgOptions) -> f64 {
 fn write_network(
     out: &mut impl Write,
     picture: &Picture,
-    edges: &[Edge],
+    edges: &[&Edge],
     options: &SvgOptions,
 ) -> io::Result<()> {
     // Edges grouped by family and type, in stream order within each.

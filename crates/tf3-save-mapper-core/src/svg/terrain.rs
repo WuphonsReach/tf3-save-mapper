@@ -11,8 +11,9 @@
 
 use std::fmt::Write as _;
 use std::io::{self, Write};
+use std::ops::RangeInclusive;
 
-use super::{Picture, SvgOptions, layer};
+use super::{Picture, SvgOptions, fmt_g, layer};
 use crate::contour::{Grid, Point, level_rings, simplify, split_at_border};
 use crate::terrain::{GRID_STEP, Terrain};
 
@@ -90,34 +91,62 @@ fn tenths(t: i64) -> String {
     }
 }
 
-/// The heightmap in picture order, every `step`th point: picture row 0 is
-/// the northernmost grid row.
-fn picture_grid(t: &Terrain, step: usize) -> Grid {
-    let (columns, rows) = (t.columns(), t.rows());
-    let picked_rows: Vec<usize> = (0..rows).rev().step_by(step).collect();
-    let width = columns.div_ceil(step);
-    let mut values = Vec::with_capacity(width * picked_rows.len());
+/// The grid points of `columns` and `rows` in picture order, every `step`th
+/// point: picture row 0 is the northernmost grid row.
+fn picture_grid(
+    t: &Terrain,
+    step: usize,
+    columns: RangeInclusive<usize>,
+    rows: RangeInclusive<usize>,
+) -> Grid {
+    let picked_rows: Vec<usize> = rows.rev().step_by(step).collect();
+    let picked_columns: Vec<usize> = columns.step_by(step).collect();
+    let mut values = Vec::with_capacity(picked_columns.len() * picked_rows.len());
     for &r in &picked_rows {
-        values.extend((0..columns).step_by(step).map(|c| t.at(c, r)));
+        values.extend(picked_columns.iter().map(|&c| t.at(c, r)));
     }
     Grid {
-        width,
+        width: picked_columns.len(),
         height: picked_rows.len(),
         values,
     }
+}
+
+/// The grid columns and rows a crop's map box spans (all of them without one).
+fn grid_span(
+    t: &Terrain,
+    crop: Option<(f64, f64, f64, f64)>,
+) -> (RangeInclusive<usize>, RangeInclusive<usize>) {
+    let (last_c, last_r) = (t.columns() - 1, t.rows() - 1);
+    let Some((x0, x1, y0, y1)) = crop else {
+        return (0..=last_c, 0..=last_r);
+    };
+    let (tw, th) = t.size();
+    let at = |v: f64, half: u32, last: usize| {
+        ((v + f64::from(half) / 2.0) / GRID_STEP)
+            .round()
+            .clamp(0.0, last as f64) as usize
+    };
+    (
+        at(x0, tw, last_c)..=at(x1, tw, last_c),
+        at(y0, th, last_r)..=at(y1, th, last_r),
+    )
 }
 
 pub(super) fn write(
     out: &mut impl Write,
     t: &Terrain,
     picture: &Picture,
+    crop: Option<(f64, f64, f64, f64)>,
     options: &SvgOptions,
 ) -> io::Result<()> {
     let mpp = options.metres_per_pixel;
     let step = ((mpp / GRID_STEP) as usize).max(1);
     let spacing = GRID_STEP * step as f64;
     let unit = f64::from(t.unit);
-    let grid = picture_grid(t, step);
+    let (columns, rows) = grid_span(t, crop);
+    let (c0, r1) = (*columns.start(), *rows.end());
+    let grid = picture_grid(t, step, columns, rows);
     let step_m = options.contour_step;
     let (rings, extent) = level_rings(
         &grid,
@@ -131,15 +160,22 @@ pub(super) fn write(
         .into_iter()
         .map(|(k, rs)| (k, rs.iter().map(|r| simplify(r, tolerance, true)).collect()))
         .collect();
-    // The grid's own top-left corner, should the header give another map size.
+    // The cut grid's top-left corner: the crop's, or the map's should the
+    // header give another map size.
     let (tw, th) = t.size();
-    let (u0, v0) = picture.pic((-f64::from(tw) / 2.0, f64::from(th) / 2.0));
+    let (u0, v0) = picture.pic((
+        -f64::from(tw) / 2.0 + GRID_STEP * c0 as f64,
+        -f64::from(th) / 2.0 + GRID_STEP * r1 as f64,
+    ));
     let shift = if u0 != 0.0 || v0 != 0.0 {
-        format!(" transform=\"translate({u0} {v0})\"")
+        format!(" transform=\"translate({} {})\"", fmt_g(u0), fmt_g(v0))
     } else {
         String::new()
     };
-    let (w, h) = (f64::from(tw), f64::from(th));
+    let (w, h) = (
+        (grid.width - 1) as f64 * spacing,
+        (grid.height - 1) as f64 * spacing,
+    );
     let thin = 0.5 * mpp; // so a line stays thinner than a road
     let land = if options.bands {
         land_colour(step_m / 2.0)
@@ -262,7 +298,7 @@ mod tests {
             water_level: 0.0,
             heights: (0..65 * 65).map(|i| (i / 65) as u16).collect(),
         };
-        let g = picture_grid(&t, 2);
+        let g = picture_grid(&t, 2, 0..=64, 0..=64);
         assert_eq!((g.width, g.height), (33, 33));
         // Row 0 of the picture is the last grid row (y largest).
         assert_eq!(g.values[0], 64);
