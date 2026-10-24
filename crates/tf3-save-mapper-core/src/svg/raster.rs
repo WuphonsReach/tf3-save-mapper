@@ -1,4 +1,4 @@
-//! The terrain as pixels.
+//! The terrain as pixels, and the roads and rails drawn into them.
 //!
 //! The shading follows the prototype's raster picture: the land in the same
 //! height ramp as the vector bands, lit from the north-west with the slopes
@@ -12,9 +12,10 @@
 use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
-use super::North;
-use super::terrain::{land_rgb, picture_grid};
+use super::terrain::{grid_corner, land_rgb, picture_grid};
+use super::{CURVE_TOLERANCE, North};
 use crate::contour::Grid;
+use crate::edges::{Edge, Family};
 use crate::terrain::{GRID_STEP, Terrain};
 
 /// A bigger picture is refused: at 3 bytes a pixel it is too much to hold.
@@ -23,6 +24,8 @@ const SHALLOW: [f64; 3] = [120.0, 175.0, 220.0];
 const DEEP: [f64; 3] = [30.0, 75.0, 125.0];
 /// Towards the light: north-west and up.
 const LIGHT: [f64; 3] = [-0.55, 0.55, 0.63];
+const ROAD: [u8; 3] = [50, 50, 50];
+const RAIL: [u8; 3] = [205, 30, 30];
 
 /// RGB pixels, top row first.
 #[derive(Debug, Clone, PartialEq)]
@@ -81,15 +84,55 @@ pub(super) fn check_size((w, h): (usize, usize)) -> io::Result<()> {
     Ok(())
 }
 
-/// The terrain's grid points of `columns` and `rows` shaded into pixels.
+/// The map point at the picture's top-left corner and which way north is:
+/// where map points fall in the picture, in metres from that corner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Corner {
+    pub north: North,
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Corner {
+    /// The corner of a picture of the map box `(x_min, x_max, _, y_max)`.
+    pub fn of_box(north: North, (x_min, x_max, _, y_max): (f64, f64, f64, f64)) -> Corner {
+        let x = match north {
+            North::Game => x_min,
+            North::Sun => x_max,
+        };
+        Corner { north, x, y: y_max }
+    }
+
+    /// Picture metres (u to the right, v down) of a map point.
+    pub fn pic(&self, (x, y): (f64, f64)) -> (f64, f64) {
+        match self.north {
+            North::Game => (x - self.x, self.y - y),
+            North::Sun => (self.y - y, self.x - x),
+        }
+    }
+
+    /// The map box `(x_min, x_max, y_min, y_max)` a picture of `size` pixels
+    /// `spacing` metres apart shows.
+    pub fn bounds(&self, (w, h): (usize, usize), spacing: f64) -> (f64, f64, f64, f64) {
+        let (w, h) = (w as f64 * spacing, h as f64 * spacing);
+        match self.north {
+            North::Game => (self.x, self.x + w, self.y - h, self.y),
+            North::Sun => (self.x - h, self.x, self.y - w, self.y),
+        }
+    }
+}
+
+/// The terrain's grid points of `columns` and `rows` shaded into pixels, and
+/// the map point at the picture's top-left corner.
 pub(super) fn shade(
     t: &Terrain,
     columns: RangeInclusive<usize>,
     rows: RangeInclusive<usize>,
     sampling: Sampling,
     north: North,
-) -> io::Result<Image> {
+) -> io::Result<(Image, Corner)> {
     check_size(sampling.size(columns.clone().count(), rows.clone().count(), north))?;
+    let (x, y) = grid_corner(t, &columns, &rows, north);
     let grid = if sampling.fine > 1 {
         let (c0, r0) = (*columns.start(), *rows.start());
         let wide = fill_in(
@@ -103,7 +146,10 @@ pub(super) fn shade(
     } else {
         picture_grid(|c, r| t.at(c, r), sampling.step, columns, rows, north)
     };
-    Ok(shade_grid(&grid, t, sampling.spacing))
+    Ok((
+        shade_grid(&grid, t, sampling.spacing),
+        Corner { north, x, y },
+    ))
 }
 
 /// The grid with `f` points per step of the `width` x `height` grid `at`
@@ -176,6 +222,94 @@ fn shade_grid(grid: &Grid, t: &Terrain, spacing: f64) -> Image {
         width: w,
         height: h,
         rgb,
+    }
+}
+
+/// A plain picture of one colour.
+pub(super) fn blank((width, height): (usize, usize), colour: [u8; 3]) -> io::Result<Image> {
+    check_size((width, height))?;
+    Ok(Image {
+        width,
+        height,
+        rgb: colour.repeat(width * height),
+    })
+}
+
+/// The point at `t` (0 to 1) of the cubic with control points `c`.
+fn bezier_point(c: &[(f64, f64); 4], t: f64) -> (f64, f64) {
+    let u = 1.0 - t;
+    let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+    (
+        w[0] * c[0].0 + w[1] * c[1].0 + w[2] * c[2].0 + w[3] * c[3].0,
+        w[0] * c[0].1 + w[1] * c[1].1 + w[2] * c[2].1 + w[3] * c[3].1,
+    )
+}
+
+/// Draw the roads into `img`, then the rails over them, each as wide as
+/// `width` gives (at least one pixel). A bend is drawn as chords of about 8
+/// pixels. `spacing` is the metres per pixel.
+pub(super) fn draw_network(
+    img: &mut Image,
+    corner: &Corner,
+    spacing: f64,
+    edges: &[&Edge],
+    width: impl Fn(&Edge) -> f64,
+) {
+    for (family, colour) in [(Family::Street, ROAD), (Family::Track, RAIL)] {
+        for e in edges.iter().filter(|e| e.family == family) {
+            let c = e.bezier();
+            let steps = if e.is_curved(CURVE_TOLERANCE) {
+                ((e.length() / (8.0 * spacing)).ceil() as usize).max(1)
+            } else {
+                1
+            };
+            let pts: Vec<(f64, f64)> = (0..=steps)
+                .map(|i| corner.pic(bezier_point(&c, i as f64 / steps as f64)))
+                .collect();
+            let brush = ((width(e) / spacing).round_ties_even() as i64).max(1);
+            for pair in pts.windows(2) {
+                let (a, b) = (pair[0], pair[1]);
+                line(
+                    img,
+                    (a.0 / spacing, a.1 / spacing),
+                    (b.0 / spacing, b.1 / spacing),
+                    colour,
+                    brush,
+                );
+            }
+        }
+    }
+}
+
+/// A line between two pixel positions, a square brush `brush` pixels wide
+/// at each step; the parts outside the picture are skipped.
+fn line(img: &mut Image, from: (f64, f64), to: (f64, f64), colour: [u8; 3], brush: i64) {
+    let px = |v: f64| v.round_ties_even() as i64;
+    let (mut x0, mut y0, x1, y1) = (px(from.0), px(from.1), px(to.0), px(to.1));
+    let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
+    let (sx, sy) = (if x0 < x1 { 1 } else { -1 }, if y0 < y1 { 1 } else { -1 });
+    let mut err = dx + dy;
+    let (lo, hi) = (-((brush - 1) / 2), brush / 2 + 1);
+    let (w, h) = (img.width as i64, img.height as i64);
+    loop {
+        for yy in (y0 + lo).max(0)..(y0 + hi).min(h) {
+            for xx in (x0 + lo).max(0)..(x0 + hi).min(w) {
+                let o = 3 * (yy * w + xx) as usize;
+                img.rgb[o..o + 3].copy_from_slice(&colour);
+            }
+        }
+        if x0 == x1 && y0 == y1 {
+            return;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
     }
 }
 
@@ -316,6 +450,61 @@ mod tests {
         // 50 m under water: halfway from shallow to deep, unlit.
         let (g, t) = flat(vec![0; 4], 2);
         assert_eq!(shade_grid(&g, &t, 4.0).rgb, [75, 125, 172]);
+    }
+
+    #[test]
+    fn lines_have_a_square_brush_and_are_cut_to_the_picture() {
+        let mut img = blank((6, 4), [255; 3]).unwrap();
+        // Two pixels wide: the brush covers the point and the one right and below.
+        line(&mut img, (-2.0, 1.0), (2.5, 1.0), RAIL, 2);
+        let red: Vec<(usize, usize)> = (0..24)
+            .filter(|p| img.rgb[3 * p] == 205)
+            .map(|p| (p % 6, p / 6))
+            .collect();
+        // 2.5 rounds to the even 2.
+        assert_eq!(
+            red,
+            [
+                (0, 1),
+                (1, 1),
+                (2, 1),
+                (3, 1),
+                (0, 2),
+                (1, 2),
+                (2, 2),
+                (3, 2)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bend_is_drawn_as_chords_of_about_8_pixels() {
+        // From (5, 35) to (35, 10) on the map, leaving east and arriving
+        // heading south: 39 m, so 5 chords. As the prototype draws it.
+        let e = Edge {
+            a: 1,
+            b: 2,
+            p0: [5.0, 35.0, 0.0],
+            p1: [35.0, 10.0, 0.0],
+            t0: [45.0, 0.0, 0.0],
+            t1: [0.0, -45.0, 0.0],
+            template: None,
+            family: Family::Street,
+            width: Some(3.0),
+            offset: 0,
+        };
+        let mut img = blank((40, 40), [255; 3]).unwrap();
+        let corner = Corner {
+            north: North::Game,
+            x: 0.0,
+            y: 40.0,
+        };
+        draw_network(&mut img, &corner, 1.0, &[&e], |_| 3.0);
+        let hash = img.rgb.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+        });
+        let road = img.rgb.chunks(3).filter(|p| *p == ROAD).count();
+        assert_eq!((road, hash), (158, 0x3882_4869_c781_618d));
     }
 
     #[test]

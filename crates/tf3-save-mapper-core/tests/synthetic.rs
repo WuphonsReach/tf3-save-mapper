@@ -12,7 +12,7 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
     read_header, read_instances, read_model_table, read_strips, read_terrain, retain_live,
-    write_svg,
+    write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -812,4 +812,103 @@ fn a_fine_raster_crop_fills_in_the_grid_and_turns_with_north() {
     ] {
         assert_eq!(pixel(&img, i, j), rgb, "({i}, {j})");
     }
+}
+
+/// The synthetic save's live edges and terrain as a flat PNG, drawn with `options`.
+fn render_png(options: &SvgOptions) -> Vec<u8> {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let mut found = read_edges(&stream).unwrap();
+    retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    let terrain = read_terrain(&stream).unwrap();
+    let mut out = Vec::new();
+    write_png(&mut out, &header, &found, Some(&terrain), options).unwrap();
+    out
+}
+
+/// FNV-1a over the pixels, and the number of road and rail pixels.
+fn fingerprint((_, _, rgb): &(u32, u32, Vec<u8>)) -> (u64, usize, usize) {
+    let hash = rgb.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+    });
+    let count = |c: [u8; 3]| rgb.chunks(3).filter(|p| *p == c).count();
+    (hash, count([50, 50, 50]), count([205, 30, 30]))
+}
+
+/// The JSON text of the PNG's `tf3map:view` chunk.
+fn view_record(png: &[u8]) -> String {
+    let key = b"tf3map:view\0\0\0\0\0";
+    let at = png.windows(key.len()).position(|w| w == key).unwrap() + key.len();
+    let len = u32::from_be_bytes(
+        png[at - key.len() - 8..at - key.len() - 4]
+            .try_into()
+            .unwrap(),
+    );
+    String::from_utf8(png[at..at - key.len() + len as usize].to_vec()).unwrap()
+}
+
+// The fingerprints were taken from the prototype's own `render` and
+// `draw_network` on the same heights and edges, given the lanes' widths.
+
+#[test]
+fn a_png_draws_the_network_into_the_raster_terrain() {
+    let png = render_png(&SvgOptions {
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    });
+    let img = decode_png(&png);
+    assert_eq!((img.0, img.1), (1024, 512));
+    assert_eq!(fingerprint(&img), (0xe431_126d_4ad9_cd67, 281, 70));
+    assert_eq!(
+        view_record(&png),
+        format!(
+            "{{\"map-width\": 4096, \"map-height\": 2048, \"metres-per-pixel\": 4, \
+             \"orientation\": \"north-up (game): image up is +y, image right is +x\", \
+             \"north\": \"game\", \"x-min\": -2048, \"x-max\": 2048, \"y-min\": -1024, \
+             \"y-max\": 1024, \"generator\": \"tf3map\", \"generator-version\": \"{}\"}}",
+            env!("CARGO_PKG_VERSION")
+        )
+    );
+}
+
+#[test]
+fn a_fine_png_crop_turns_with_north_and_widens_the_lines() {
+    let png = render_png(&SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 1.0,
+        north: North::Sun,
+        ..SvgOptions::default()
+    });
+    let img = decode_png(&png);
+    assert_eq!((img.0, img.1), (244, 240));
+    assert_eq!(fingerprint(&img), (0x2bcd_7e3a_c6c3_1f8a, 3997, 749));
+    let view = view_record(&png);
+    assert!(
+        view.contains(
+            "\"north\": \"sun\", \"x-min\": -1020, \"x-max\": -780, \"y-min\": 328, \
+             \"y-max\": 572, \"x-top\": -780, \"y-left\": 572, \"crop-x\": -900, \
+             \"crop-y\": 450, \"crop-radius\": 120, \"generator\""
+        ),
+        "{view}"
+    );
+}
+
+#[test]
+fn a_png_without_terrain_is_paper_and_network() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let found = read_edges(&stream).unwrap();
+    let mut out = Vec::new();
+    write_png(&mut out, &header, &found, None, &SvgOptions::default()).unwrap();
+    let img = decode_png(&out);
+    // 8 m per pixel: the whole map's 513 x 257 points every second one.
+    assert_eq!((img.0, img.1), (512, 256));
+    let (_, road, rail) = fingerprint(&img);
+    assert!(road > 0 && rail > 0);
+    let paper = img.2.chunks(3).filter(|p| *p == [255, 255, 255]).count();
+    assert_eq!(paper + road + rail, 512 * 256);
 }

@@ -159,7 +159,7 @@ pub(super) fn grid_span(
 /// The map point at the top-left corner of the cut grid's picture: the first
 /// column and last row, or with north to the left the last column and the
 /// last row. Metres, from the terrain's own size, not the header's.
-fn grid_corner(
+pub(super) fn grid_corner(
     t: &Terrain,
     columns: &RangeInclusive<usize>,
     rows: &RangeInclusive<usize>,
@@ -205,7 +205,7 @@ pub(super) fn write_raster(
     let (columns, rows) = grid_span(t, crop);
     let shift = corner_shift(t, picture, &columns, &rows, options.north);
     let sampling = Sampling::new(options.metres_per_pixel);
-    let img = raster::shade(t, columns, rows, sampling, options.north)?;
+    let (img, _) = raster::shade(t, columns, rows, sampling, options.north)?;
     let png = raster::encode(&img, None)?;
     write!(
         out,
