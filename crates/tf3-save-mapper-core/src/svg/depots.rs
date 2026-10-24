@@ -3,8 +3,10 @@
 //! facing, opaque (so it hides the ends of the road lanes under it) with the
 //! stations' black outline and no marks inside. A ship depot that reaches
 //! into the water is the outline of its face and collider boxes together. A
-//! kind with no face (the Boathouse mod's) is a dot on its origin. Only the
-//! exact model of each kind is drawn, so a depot's `_sm` twin is not.
+//! kind with no face (the Boathouse mod's, whose script is read from the
+//! mods folder when it is found, and which is drawn without it when not) is
+//! a dot on its origin. Only the exact model of each kind is drawn, so a
+//! depot's `_sm` twin is not.
 
 use std::collections::HashMap;
 
@@ -56,14 +58,14 @@ pub(super) fn layers(
                         loops_d(&closed_outline(&parts, 0.05))
                     ));
                 }
-                Some(s) => {
+                Some(s) if !s.face.is_empty() => {
                     let pts: Vec<(f64, f64)> = s.face.iter().map(|&(a, b)| local(a, b)).collect();
                     out.push(format!(
                         "<polygon points=\"{}\" fill=\"{fill}\" stroke=\"#000\" stroke-width=\"{OUTLINE}\" stroke-linejoin=\"round\"/>",
                         points_attr(&pts)
                     ));
                 }
-                None => {
+                _ => {
                     let (cx, cy) = local(0.0, 0.0);
                     out.push(format!(
                         "<circle cx=\"{}\" cy=\"{}\" r=\"{DOT}\" fill=\"{fill}\" stroke=\"#000\" stroke-width=\"{OUTLINE}\"/>",

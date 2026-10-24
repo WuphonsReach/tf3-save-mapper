@@ -34,6 +34,7 @@ Options (`tf3map --help` lists them all):
 - `--crop X,Y,R` draws only the square of half-width R metres round the map point X,Y (x east, y north, 0,0 the map's centre), at 4 m per pixel instead of 8. The picture keeps the whole map's frame, so its `viewBox` starts at the crop's corner. `--zoom N` makes the picture N times larger on screen.
 - `--mpp M` sets the metres per pixel: a multiple of 4 (the heightmap's spacing), or 1 or 2 on a crop. The default is 8 for the whole map and 4 on a crop. A coarser picture cuts the terrain from every (M / 4)th point of the heightmap; a finer one only scales the picture, since the heightmap has no more detail. Line widths and label sizes that are set in pixels follow it.
 - `--game DIR`: the game's install folder, the one holding `base/`. By default the usual Steam folders and their library folders are tried.
+- `--mods DIR`: the mod.io game's mods folder, the one holding a folder per mod, read for a mod's depots (so far the Boathouse mod's boathouse). By default the mods folders beside the usual Steam folders are tried (for the snap, `~/snap/steam/common/mod.io/common/10640/mods`), then `~/.local/share/mod.io/common/10640/mods`. Without one a boathouse is still drawn, as a dot, but with no catchment and no coverage circle.
 - `--contour M` sets the metres between height lines and bands (default 20); `--no-bands` leaves the colour bands out.
 - `--raster` draws the terrain as one picture embedded in the SVG (a PNG in a data URI): the same height colours with hill shading lit from the north-west, and the water from light to dark blue with depth. Everything else is drawn on top as before. It is 4 m per pixel unless `--mpp` says otherwise, and the file is megabytes where the vector terrain's is hundreds of kilobytes.
 - `--png` writes one flat PNG instead of the SVG: the `--raster` terrain with the roads and rails drawn into its pixels, each as wide as its lanes and at least one pixel, and nothing else (no stations, depots, industries, vehicles, labels, grid or rose; the options for those are refused). A `tf3map:view` text chunk holds a JSON record of where the picture lies: the map size, the metres per pixel, which way north is, the map box it shows (`x-min`, `x-max`, `y-min`, `y-max`) and the crop.
@@ -52,7 +53,7 @@ A save is read, never written, and the output may not be a `.sav`. A 390 MB save
 
 ### The game install
 
-To draw stations, depots and industry footprints, the tool reads a few text files from the game's `base/content` archives at run time: the station model files, the depot scripts and the industry scripts. It takes only the sizes and outlines it needs, keeps nothing, and ships none of the game's files. It never opens the game's program files.
+To draw stations, depots and industry footprints, the tool reads a few text files from the game's `base/content` archives at run time: the station model files, the depot scripts and the industry scripts. It takes only the sizes and outlines it needs, keeps nothing, and ships none of the game's files. It never opens the game's program files. In the same way it reads a mod's depot script from the mods folder, for its catchment radius, pool and transport modes, and nothing else there.
 
 ## Download
 

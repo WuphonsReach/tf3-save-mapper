@@ -24,7 +24,7 @@ mod zip;
 pub use edges::{Edge, Family, read_edges, read_free_ids, retain_live};
 pub use error::{Error, Result};
 pub use header::{Header, read_header};
-pub use install::Install;
+pub use install::{Install, Mods};
 pub use instances::{Instance, ModelTable, industry_models, read_instances, read_model_table};
 pub use strips::{edge_ids, read_strips};
 pub use svg::{Layers, SvgOptions, write_png, write_svg};

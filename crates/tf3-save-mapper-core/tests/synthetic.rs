@@ -5,8 +5,9 @@ mod common;
 use std::collections::HashMap;
 
 use common::{
-    BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL,
-    LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT, STRIP_ID, STRIP_ROWS, TRACK_LANES,
+    BOATHOUSE_MODEL, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
+    FREE_RUN_START, FREE_TAIL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT, STRIP_ID, STRIP_ROWS,
+    TRACK_LANES,
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
@@ -474,6 +475,55 @@ fn coverage_is_a_dashed_circle_under_the_roads() {
     assert!(svg.contains("id=\"coverage-maintenance-buildings\""));
     assert!(!svg.contains("class=\"depot "));
     let svg = render_depots(&SvgOptions::default(), false, true, HashMap::new());
+    assert!(!svg.contains("id=\"coverage\""));
+}
+
+#[test]
+fn a_mods_boathouse_gets_its_catchment_when_its_script_is_found() {
+    // What the mods folder's script gives: no face, a radius, a pool, modes.
+    let boathouse = DepotSpec {
+        face: vec![],
+        boxes: vec![],
+        radius: Some(600),
+        pool: 2,
+        modes: "SHIP,SMALL_SHIP".into(),
+    };
+    let dot = "<circle cx=\"597.50\" cy=\"1344.40\" r=\"4\" fill=\"#7b4a24\" stroke=\"#000\" \
+               stroke-width=\"1.5\"/>";
+    let svg = render_depots(
+        &SvgOptions::default(),
+        true,
+        true,
+        HashMap::from([("boathouses", boathouse)]),
+    );
+    let group = svg
+        .lines()
+        .find(|l| l.contains("class=\"depot boathouses\""))
+        .unwrap();
+    assert!(
+        group.ends_with(&format!(
+            "data-model=\"{BOATHOUSE_MODEL}\" data-x=\"-1450.5\" data-y=\"-320.4\" \
+             data-pool=\"2\" data-radius=\"600\" data-modes=\"SHIP,SMALL_SHIP\">"
+        )),
+        "{group}"
+    );
+    assert!(svg.contains(dot), "{svg}");
+    assert!(svg.contains("id=\"coverage-boathouses\""));
+    assert!(svg.contains(
+        "<circle cx=\"597.50\" cy=\"1344.40\" r=\"600\" fill=\"#3d2512\" fill-opacity=\"0.06\""
+    ));
+
+    // Without the mod's script: the same dot, no catchment and no circle.
+    let svg = render_depots(&SvgOptions::default(), true, true, HashMap::new());
+    let group = svg
+        .lines()
+        .find(|l| l.contains("class=\"depot boathouses\""))
+        .unwrap();
+    assert!(
+        group.ends_with("data-x=\"-1450.5\" data-y=\"-320.4\">"),
+        "{group}"
+    );
+    assert!(svg.contains(dot));
     assert!(!svg.contains("id=\"coverage\""));
 }
 
