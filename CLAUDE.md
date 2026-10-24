@@ -21,13 +21,15 @@ Positioning: use a `tf3-` name; write "Transport Fever 3" only in the descriptio
 - Use the game's internal names (`cement`, `vegetables`, `ship`); the list is in `tf3-save-format/docs/glossary.md`.
 - Offsets move between saves: find structures by pattern, never by fixed offset.
 - Write the reader from the format notes in our own words. Never copy text or code from tf3-save-editor's `FORMAT.md`; credit it if used.
+- The icons in `crates/tf3-save-mapper-core/icons/` are copies of tf3-save-format's `tools/icons/` (our own drawings, same licence), built in with `include_str!`. Change them there and copy them over; a new industry key also needs a line in `ICONS` (`svg/industries.rs`). `.gitignore` lets `*.svg` in that folder through.
 
 ## Testing
 
-- Committed tests use a hand-built stream (`crates/tf3-save-mapper-core/tests/common/mod.rs`): header, edge table, decoy, free-id list. Keep its floats varied: with all-equal heights a misaligned read can pass the plausibility checks and make the table's first record ambiguous.
+- Committed tests use a hand-built stream (`crates/tf3-save-mapper-core/tests/common/mod.rs`): header, model table, terrain and heightmap, edge table, decoy, one industry instance, free-id list. Keep heightmap runs short (no long ascending run of u32 words near the stream's end, or the free-id search takes it). Keep its floats varied: with all-equal heights a misaligned read can pass the plausibility checks and make the table's first record ambiguous.
 - `tests/golden.rs` runs on a real save when `TF3_MAPPER_TEST_SAVE` is set (and checks the edge count against `TF3_MAPPER_TEST_EDGES` if set) and does nothing otherwise. Never write that path into a committed file.
 - To check a port against the Python prototype, compare per-edge: positions within 0.2 m and the curved/straight choice, after the free-id filter. Counts alone hide mismatches.
-- Data quirks seen in real saves, not bugs: a few nodes (up to about 1.5 %) have two positions because leftover records reuse ids, and airport runways can reach past the map edge.
+- For the other layers, run both tools on the same saves (`terrain_map.py --depots --stations`) and compare the SVGs element by element. The two share a frame (metres from the top-left corner) and the number formats, so key on `data-model`/`data-key` with `data-x`, `data-y`. Station pieces, depots, badges and footprints compare exactly; outline runs and border loops compare after normalising each loop's start; compare terrain paths by level. Differences that are ours by choice: edge widths from the save's lanes, and one 1.5 m outline width where the prototype scales outlines (and the landing clearance) by metres per pixel. Prototype bugs found so far are in `tf3-save-format/local/handoff-mapper-layers.md`; patch a scratchpad copy of `tools/` for them rather than porting them. The prototype takes about 90 s for a mid-size save, so run the saves in parallel in the background.
+- Data quirks seen in real saves, not bugs: a few nodes (up to about 1.5 %) have two positions because leftover records reuse ids, and airport runways can reach past the map edge. An edge's lane widths can differ from today's template (`town_new_small` 14 m against 16 m in an older save); draw the save's. Numbers in the install's `.mdl` and script files can carry exponents (`2.28882e-07`); a reader that stops at `e` drops or shrinks pieces.
 
 ## Game install
 
