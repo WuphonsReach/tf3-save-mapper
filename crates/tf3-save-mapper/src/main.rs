@@ -152,10 +152,14 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         match arg.as_str() {
             "-h" | "--help" => return Ok(Parsed::Exit(USAGE.into())),
             "-V" | "--version" => {
-                return Ok(Parsed::Exit(format!(
-                    "tf3map {}",
-                    env!("CARGO_PKG_VERSION")
-                )));
+                // The commit follows the version, so a build between two
+                // releases has its own text (a caller can key a cache on it).
+                return Ok(Parsed::Exit(match option_env!("TF3MAP_BUILD") {
+                    Some(build) if !build.is_empty() => {
+                        format!("tf3map {} ({build})", env!("CARGO_PKG_VERSION"))
+                    }
+                    _ => format!("tf3map {}", env!("CARGO_PKG_VERSION")),
+                }));
             }
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
             "--crop" => options.crop = Some(crop(&value("--crop")?)?),

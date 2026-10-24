@@ -394,6 +394,15 @@ pub fn write_svg(
     writeln!(out, "<desc>{}</desc>", escape(&description(header)))?;
     writeln!(
         out,
+        "{}",
+        view_metadata(
+            header,
+            (view.x_min, view.x_max, view.y_min, view.y_max),
+            options
+        )
+    )?;
+    writeln!(
+        out,
         "{}<rect{} width=\"{w}\" height=\"{h}\" fill=\"{BACKGROUND_COLOUR}\"/></g>",
         layer("background", "Background", ""),
         corner_attrs(&view)
@@ -535,9 +544,7 @@ pub fn write_png(
 }
 
 /// Where a PNG lies on the map, as one JSON object with the prototype's view
-/// record names: the map's size, the metres per pixel, which way north is,
-/// the map box the picture spans (and for `North::Sun` the map point at its
-/// top-left corner), the crop if any, and the tool that drew it.
+/// record names (`view_fields`).
 fn view_record(
     header: &Header,
     corner: &raster::Corner,
@@ -545,42 +552,82 @@ fn view_record(
     spacing: f64,
     options: &SvgOptions,
 ) -> String {
-    let (x_min, x_max, y_min, y_max) = corner.bounds(size, spacing);
-    let text = |t: &str| format!("\"{t}\"");
+    let fields = view_fields(header, corner.bounds(size, spacing), options);
+    let body: Vec<String> = fields
+        .iter()
+        .map(|(k, v, quoted)| {
+            if *quoted {
+                format!("\"{k}\": \"{v}\"")
+            } else {
+                format!("\"{k}\": {v}")
+            }
+        })
+        .collect();
+    format!("{{{}}}", body.join(", "))
+}
+
+/// The same record as a `<metadata>` element for the SVG, `bounds` being the
+/// map box the picture shows. Every value is a string.
+fn view_metadata(header: &Header, bounds: (f64, f64, f64, f64), options: &SvgOptions) -> String {
+    let attrs: Vec<String> = view_fields(header, bounds, options)
+        .iter()
+        .map(|(k, v, _)| format!("{k}=\"{}\"", escape(v)))
+        .collect();
+    format!(
+        "<metadata><tf3map:view xmlns:tf3map=\"urn:tf3-save-format:terrain-map:1\" {}/></metadata>",
+        attrs.join(" ")
+    )
+}
+
+/// The view record's names and values, in the prototype's order: the map's
+/// size, the metres per pixel, which way north is, the map box `bounds`
+/// `(x_min, x_max, y_min, y_max)` the picture spans (and for `North::Sun` the
+/// map point at its top-left corner), the crop if any, what was set away from
+/// its default, and the tool that drew it. The flag says the value is text.
+/// The save's file name and the time are left out, so the output stays the
+/// same from run to run.
+fn view_fields(
+    header: &Header,
+    (x_min, x_max, y_min, y_max): (f64, f64, f64, f64),
+    options: &SvgOptions,
+) -> Vec<(&'static str, String, bool)> {
     let (orientation, north) = match options.north {
         North::Game => ("north-up (game): image up is +y, image right is +x", "game"),
         North::Sun => ("north-up (sun): image up is +x, image right is -y", "sun"),
     };
     let mut fields = vec![
-        ("map-width", header.map_width.to_string()),
-        ("map-height", header.map_height.to_string()),
-        ("metres-per-pixel", fmt_g(options.metres_per_pixel)),
-        ("orientation", text(orientation)),
-        ("north", text(north)),
-        ("x-min", fmt_g(x_min)),
-        ("x-max", fmt_g(x_max)),
-        ("y-min", fmt_g(y_min)),
-        ("y-max", fmt_g(y_max)),
+        ("map-width", header.map_width.to_string(), false),
+        ("map-height", header.map_height.to_string(), false),
+        ("metres-per-pixel", fmt_g(options.metres_per_pixel), false),
+        ("orientation", orientation.to_owned(), true),
+        ("north", north.to_owned(), true),
+        ("x-min", fmt_g(x_min), false),
+        ("x-max", fmt_g(x_max), false),
+        ("y-min", fmt_g(y_min), false),
+        ("y-max", fmt_g(y_max), false),
     ];
     if options.north == North::Sun {
-        fields.extend([("x-top", fmt_g(x_max)), ("y-left", fmt_g(y_max))]);
+        fields.extend([
+            ("x-top", fmt_g(x_max), false),
+            ("y-left", fmt_g(y_max), false),
+        ]);
     }
     if let Some(c) = options.crop {
         fields.extend([
-            ("crop-x", fmt_g(c.x)),
-            ("crop-y", fmt_g(c.y)),
-            ("crop-radius", fmt_g(c.radius)),
+            ("crop-x", fmt_g(c.x), false),
+            ("crop-y", fmt_g(c.y), false),
+            ("crop-radius", fmt_g(c.radius), false),
         ]);
     }
     fields.extend([
-        ("generator", text("tf3map")),
-        ("generator-version", text(env!("CARGO_PKG_VERSION"))),
+        ("generator", "tf3map".to_owned(), true),
+        (
+            "generator-version",
+            env!("CARGO_PKG_VERSION").to_owned(),
+            true,
+        ),
     ]);
-    let body: Vec<String> = fields
-        .iter()
-        .map(|(k, v)| format!("\"{k}\": {v}"))
-        .collect();
-    format!("{{{}}}", body.join(", "))
+    fields
 }
 
 fn write_lines(out: &mut impl Write, lines: &[String]) -> io::Result<()> {
