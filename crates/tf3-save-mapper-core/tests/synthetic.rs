@@ -2,10 +2,13 @@
 
 mod common;
 
+use std::collections::HashMap;
+
 use common::{
     BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN, FREE_RUN_START, FREE_TAIL,
-    LONE_STRIP_ID, PIT, STRIP_ID, STRIP_ROWS, TRACK_LANES,
+    LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT, STRIP_ID, STRIP_ROWS, TRACK_LANES,
 };
+use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
     Crop, EdgeLabel, GridLines, GridStep, North, Rose, shown_edges, unmatched_labels,
 };
@@ -403,6 +406,111 @@ fn a_crop_off_the_map_is_refused() {
         edge.bounds(&header),
         Some((1900.0, 2048.0, -1024.0, -900.0))
     );
+}
+
+/// A road maintenance building's spec as an install's script would give it.
+fn maint_spec() -> DepotSpec {
+    DepotSpec {
+        face: vec![(-10.0, -12.5), (15.0, -12.5), (15.0, 12.5), (-10.0, 12.5)],
+        boxes: vec![],
+        radius: Some(600),
+        pool: 16,
+        modes: "BUS,TRUCK,TRAM,ELECTRIC_TRAM".into(),
+    }
+}
+
+/// The synthetic save's depots drawn with `options`: as footprints, as
+/// coverage circles, or both, with `specs` standing in for the install.
+fn render_depots(
+    options: &SvgOptions,
+    footprints: bool,
+    coverage: bool,
+    specs: HashMap<&'static str, DepotSpec>,
+) -> String {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let table = read_model_table(&stream).unwrap();
+    let rows = read_instances(&stream, &table, &["depots/", "assets/ingo_bootsschuppen/"]);
+    let layers = Layers {
+        depots: if footprints { rows.clone() } else { vec![] },
+        coverage: if coverage { rows } else { vec![] },
+        depot_specs: specs,
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &[], &layers, options).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn coverage_is_a_dashed_circle_under_the_roads() {
+    let specs = || HashMap::from([("maintenance-buildings", maint_spec())]);
+    let svg = render_depots(&SvgOptions::default(), true, true, specs());
+    // x + 2048, 1024 - y; 600 m round the origin; 1.5, 10 and 6 pixels at 8 m per pixel.
+    assert!(
+        svg.contains(&format!(
+            "<g id=\"coverage-{0}\" class=\"coverage maintenance-buildings\" data-slot=\"{0}\" \
+             data-model=\"{MAINT_MODEL}\" data-x=\"1200.5\" data-y=\"-600.2\" data-pool=\"16\" \
+             data-radius=\"600\" data-modes=\"BUS,TRUCK,TRAM,ELECTRIC_TRAM\"><circle \
+             cx=\"3248.50\" cy=\"1624.25\" r=\"600\" fill=\"#4b4b4b\" fill-opacity=\"0.06\" \
+             stroke=\"#4b4b4b\" stroke-width=\"12\" stroke-dasharray=\"80 48\"/></g>",
+            maint_slot()
+        )),
+        "{svg}"
+    );
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("grid") < at("coverage") && at("coverage") < at("roads"));
+    assert!(
+        at("rails") < at("maintenance-buildings"),
+        "the footprint over the network"
+    );
+
+    // Off by default: footprints only.
+    let svg = render_depots(&SvgOptions::default(), true, false, specs());
+    assert!(!svg.contains("id=\"coverage\""));
+    assert!(svg.contains("class=\"depot maintenance-buildings\""));
+    // Coverage alone, and without a spec no circle and no layer.
+    let svg = render_depots(&SvgOptions::default(), false, true, specs());
+    assert!(svg.contains("id=\"coverage-maintenance-buildings\""));
+    assert!(!svg.contains("class=\"depot "));
+    let svg = render_depots(&SvgOptions::default(), false, true, HashMap::new());
+    assert!(!svg.contains("id=\"coverage\""));
+}
+
+/// The maintenance building's place among the stream's instance records.
+fn maint_slot() -> usize {
+    let stream = common::stream(&edges());
+    let table = read_model_table(&stream).unwrap();
+    let rows = read_instances(&stream, &table, &["depots/"]);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].model, MAINT_MODEL);
+    rows[0].slot
+}
+
+#[test]
+fn a_crop_keeps_a_circle_that_reaches_it() {
+    let crop = |dx: f64| SvgOptions {
+        crop: Some(Crop {
+            x: f64::from(MAINT_AT.0) + dx,
+            y: f64::from(MAINT_AT.1),
+            radius: 50.0,
+        }),
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    };
+    let specs = || HashMap::from([("maintenance-buildings", maint_spec())]);
+    // 500 m east: the circle reaches the crop, the footprint does not.
+    let svg = render_depots(&crop(500.0), true, true, specs());
+    assert!(
+        svg.contains("class=\"coverage maintenance-buildings\""),
+        "{svg}"
+    );
+    assert!(!svg.contains("class=\"depot "));
+    // The line and dashes keep their pixels at 4 m per pixel.
+    assert!(svg.contains("stroke-width=\"6\" stroke-dasharray=\"40 24\""));
+    // 700 m east, the crop's near side is 648 m off: nothing.
+    let svg = render_depots(&crop(700.0), true, true, specs());
+    assert!(!svg.contains("id=\"coverage\""), "{svg}");
 }
 
 /// The synthetic save's vehicles drawn with `options`, the ones in `names` named.

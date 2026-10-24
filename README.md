@@ -11,7 +11,7 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Terrain**: height bands every 20 m in a plain colour ramp, the water (lakes, sea and rivers), and height lines with every fifth one heavier. All vector shapes, cut from the save's heightmap. With `--raster`, one shaded picture instead (below).
 - **Roads and rails** from the street edges in the save, one sublayer per street or track type. Each is as wide as its lanes, sidewalks included (a small town street 16 m, a track 4 m), and curves follow the stored bends.
 - **Stations**: the docks, platforms and buildings of water, rail and street stations, with a border round each bus, tram or cargo station and an anchor on each ship landing.
-- **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier.
+- **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier, and, when asked for, the area each one maintains.
 - **Industries**: each industry's footprint, and a badge with its icon.
 - **Vehicles**, when asked for: one shape per vehicle, pointing where it faces.
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
@@ -43,6 +43,7 @@ Options (`tf3map --help` lists them all):
 - `--min-width M` draws no road or track narrower than M metres, so tracks stay visible on a whole-map view.
 - `--road-width M` and `--rail-width M` set the width of an edge whose lanes cannot be read (default 16 and 4).
 - `--keep-dead` also draws roads the game deleted but left in the save.
+- `--coverage` draws the area each depot and maintenance building covers: a dashed circle at the catchment radius of its script, round its origin, under the roads, one sublayer per kind. A ship depot's ring in the game is sometimes tens of metres off its origin; this draws it on the origin.
 - `--vehicles` draws the vehicles, coloured by kind. `--name SLOT=TEXT` writes TEXT beside the vehicle whose `data-slot` is SLOT (repeatable); a default name such as `Road Vehicle 279` is shortened to `RV279`.
 - `--label A>B[=TEXT]` writes TEXT (or `A>B`) along the edge between the nodes with hex ids A and B, in either order, and marks its ends (repeatable); `--edge-ids` adds the edge's own entity id where the save's strip table gives it. A label is never moved; one whose edge is not in the picture is reported.
 - `--grid N` puts marks every N metres, the 1000 m ones major; by default there are major marks only, about a third of the shorter side apart (1000 m at least on a whole map). `--no-grid` leaves the grid out, `--grid-lines auto|none|dots|faint` chooses which lines are drawn besides the crosses and `--grid-dot-step M` spaces the dots.

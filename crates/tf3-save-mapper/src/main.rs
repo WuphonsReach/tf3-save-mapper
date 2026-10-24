@@ -42,6 +42,8 @@ Options:
       --no-terrain    leave out the terrain
       --no-industries leave out the industries
       --no-depots     leave out the depots and maintenance buildings
+      --coverage      draw each depot's and maintenance building's coverage: a dashed circle at its
+                      catchment radius, round its origin, under the roads (needs the install)
       --no-stations   leave out the stations
       --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
                       upper-right, off, or X,Y (map metres) for its centre
@@ -108,6 +110,7 @@ struct Args {
     terrain: bool,
     industries: bool,
     depots: bool,
+    coverage: bool,
     stations: bool,
     vehicles: bool,
     names: HashMap<usize, String>,
@@ -127,6 +130,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut keep_dead = false;
     let mut game = None;
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
+    let mut coverage = false;
     let (mut grid, mut no_grid) = (None, false);
     let mut mpp = None;
     let (mut vector_only, mut svg_only) = (Vec::new(), Vec::new());
@@ -164,6 +168,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--no-terrain" => terrain = false,
             "--no-industries" => industries = false,
             "--no-depots" => depots = false,
+            "--coverage" => coverage = true,
             "--no-stations" => stations = false,
             "--no-rose" => options.rose = None,
             "--rose" => options.rose = rose(&value("--rose")?)?,
@@ -246,6 +251,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         terrain,
         industries,
         depots,
+        coverage,
         stations,
         vehicles,
         names,
@@ -458,14 +464,16 @@ fn run(args: Args) -> Result<(), String> {
     }
     write_output(&args, &header, &edges, &layers)?;
 
-    let vehicles = if args.vehicles {
-        format!(", {} vehicles", layers.vehicles.len())
-    } else {
-        String::new()
-    };
+    let mut extra = String::new();
+    if args.coverage {
+        extra += &format!(", {} coverage circles", layers.coverage.len());
+    }
+    if args.vehicles {
+        extra += &format!(", {} vehicles", layers.vehicles.len());
+    }
     eprintln!(
         "{} road edges, {} track edges ({dropped} deleted ones left out), {} industries, \
-         {} depots, {} station pieces{vehicles}; wrote {}",
+         {} depots, {} station pieces{extra}; wrote {}",
         edges.len() - tracks,
         tracks,
         layers.industries.len(),
@@ -487,10 +495,11 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
             Err(e) => eprintln!("{e}: the map is drawn without terrain"),
         }
     }
-    if !(args.industries || args.depots || args.stations || args.vehicles) {
+    let depots = args.depots || args.coverage;
+    if !(args.industries || depots || args.stations || args.vehicles) {
         return Ok(layers);
     }
-    let wants_install = args.industries || args.depots || args.stations;
+    let wants_install = args.industries || depots || args.stations;
     let found = if wants_install {
         Install::find(args.game.as_deref())
     } else {
@@ -524,7 +533,7 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
     if args.industries {
         prefixes.push("industries/");
     }
-    if args.depots && game.is_some() {
+    if depots && game.is_some() {
         prefixes.extend(["depots/", "assets/ingo_bootsschuppen/"]);
     }
     if args.stations && game.is_some() {
@@ -563,13 +572,19 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         layers.vehicle_names = args.names.clone();
     }
     if let Some(game) = game {
-        if args.depots {
+        if depots {
             layers.depot_specs = install::depot_specs(game);
-            layers.depots = instances
+            let rows: Vec<Instance> = instances
                 .iter()
                 .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
                 .cloned()
                 .collect();
+            if args.coverage {
+                layers.coverage = rows.clone();
+            }
+            if args.depots {
+                layers.depots = rows;
+            }
         }
         if args.stations {
             layers.station_boxes = install::station_boxes(game);
@@ -856,6 +871,9 @@ mod tests {
         }
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
         assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
+        assert!(!run_args(&["s.sav"]).coverage, "no coverage by default");
+        let a = run_args(&["s.sav", "--coverage", "--no-depots"]);
+        assert!(a.coverage && !a.depots);
         assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
     }
 

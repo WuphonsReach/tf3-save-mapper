@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use super::{OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr};
 use crate::geometry::{bounds, closed_outline};
-use crate::install::{DEPOT_KINDS, DepotSpec};
+use crate::install::{DEPOT_KINDS, DepotKind, DepotSpec};
 use crate::instances::Instance;
 
 /// Metres from a building's origin within which it may show.
@@ -35,23 +35,12 @@ pub(super) fn layers(
         }
         out.push(layer(kind.id, kind.label, " pointer-events=\"none\""));
         for i in rows {
-            let mut attrs = format!(
-                "id=\"depot-{}\" class=\"depot {}\" data-slot=\"{}\" data-model=\"{}\" data-x=\"{}\" data-y=\"{}\"",
+            out.push(format!(
+                "<g id=\"depot-{}\" class=\"depot {}\"{}>",
                 i.slot,
                 kind.id,
-                i.slot,
-                escape(kind.model),
-                fmt1(i.x),
-                fmt1(i.y)
-            );
-            if let Some(s) = spec {
-                attrs += &format!(" data-pool=\"{}\"", s.pool);
-                if let Some(r) = s.radius {
-                    attrs += &format!(" data-radius=\"{r}\"");
-                }
-                attrs += &format!(" data-modes=\"{}\"", escape(&s.modes));
-            }
-            out.push(format!("<g {attrs}>"));
+                data_attrs(kind, i, spec)
+            ));
             let local = |a: f64, b: f64| picture.pic(i.place(a, b));
             let fill = kind.fill;
             match spec {
@@ -88,6 +77,26 @@ pub(super) fn layers(
         out.push("</g>".into());
     }
     out
+}
+
+/// ` data-slot data-model data-x data-y`, and with the script's spec
+/// ` data-pool data-radius data-modes` (the radius only if it read).
+pub(super) fn data_attrs(kind: &DepotKind, i: &Instance, spec: Option<&DepotSpec>) -> String {
+    let mut attrs = format!(
+        " data-slot=\"{}\" data-model=\"{}\" data-x=\"{}\" data-y=\"{}\"",
+        i.slot,
+        escape(kind.model),
+        fmt1(i.x),
+        fmt1(i.y)
+    );
+    if let Some(s) = spec {
+        attrs += &format!(" data-pool=\"{}\"", s.pool);
+        if let Some(r) = s.radius {
+            attrs += &format!(" data-radius=\"{r}\"");
+        }
+        attrs += &format!(" data-modes=\"{}\"", escape(&s.modes));
+    }
+    attrs
 }
 
 #[cfg(test)]

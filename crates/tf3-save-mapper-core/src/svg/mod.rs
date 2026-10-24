@@ -6,13 +6,14 @@
 //! and y to the left. The `viewBox` is the map in metres (or the crop), so
 //! widths are in metres too and scale with the picture. Layers are
 //! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
-//! `grid`, `stations`, `roads` and `rails` (each with one sublayer per street
+//! `grid`, `coverage`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
 //! `vehicles`, `labels`, `grid-labels` and `compass`.
 //!
 //! `write_png` draws the map as one flat PNG instead: the raster terrain with
 //! the roads and rails drawn into its pixels, as the prototype's `--png` does.
 
+mod coverage;
 mod depots;
 mod grid;
 mod industries;
@@ -183,6 +184,8 @@ pub struct Layers {
     /// Ground faces by industry key, in the industry's own axes.
     pub industry_faces: HashMap<String, Polygon>,
     pub depots: Vec<Instance>,
+    /// Depots and maintenance buildings drawn as their coverage circles.
+    pub coverage: Vec<Instance>,
     /// Depot footprints by layer id (`install::DEPOT_KINDS`).
     pub depot_specs: HashMap<&'static str, DepotSpec>,
     pub stations: Vec<Instance>,
@@ -355,6 +358,12 @@ pub fn write_svg(
         .filter(|i| shows(i, depots::REACH))
         .cloned()
         .collect();
+    let coverage_rows: Vec<Instance> = layers
+        .coverage
+        .iter()
+        .filter(|i| shows(i, coverage::reach(&i.model, &layers.depot_specs)))
+        .cloned()
+        .collect();
     let vehicle_rows: Vec<Instance> = layers
         .vehicles
         .iter()
@@ -421,6 +430,15 @@ pub fn write_svg(
         }
         None => Vec::new(),
     };
+    write_lines(
+        out,
+        &coverage::layers(
+            &picture,
+            &coverage_rows,
+            &layers.depot_specs,
+            options.metres_per_pixel,
+        ),
+    )?;
     let (stations_under, stations_over) =
         stations::layers(&picture, &station_rows, &layers.station_boxes);
     write_lines(out, &stations_under)?;
