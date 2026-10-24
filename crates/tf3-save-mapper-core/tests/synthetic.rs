@@ -639,3 +639,47 @@ fn a_stream_with_no_table_has_no_edges() {
         Err(tf3_save_mapper_core::Error::NoEdges)
     ));
 }
+
+#[test]
+fn metres_per_pixel_size_the_picture_and_thin_the_terrain() {
+    // 16 m per pixel: 256 x 128 pixels, the terrain cut from every fourth
+    // grid point (257 x 129 of them, 16 m apart).
+    let svg = render(&SvgOptions {
+        metres_per_pixel: 16.0,
+        ..SvgOptions::default()
+    });
+    assert!(
+        svg.contains("width=\"256\" height=\"128\" viewBox=\"0 0 4096 2048\""),
+        "{svg}"
+    );
+    assert!(svg.contains("<rect width=\"4096\" height=\"2048\" fill=\"#"));
+    // Height lines are half a pixel wide, in metres.
+    assert!(svg.contains("id=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
+
+    // 12 m per pixel keeps every third point: 342 of the 1025, the last at
+    // 4092 m, so the terrain stops 4 m short of the map's right edge.
+    let svg = render(&SvgOptions {
+        metres_per_pixel: 12.0,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("width=\"342\" height=\"171\""), "{svg}");
+    assert!(svg.contains("<rect width=\"4092\" height=\"2040\" fill=\"#"));
+
+    // Finer than the grid on a crop: the picture has more pixels, the
+    // terrain the same 4 m points.
+    let crop = Crop {
+        x: -900.0,
+        y: 450.0,
+        radius: 120.0,
+    };
+    let svg = render(&SvgOptions {
+        crop: Some(crop),
+        metres_per_pixel: 2.0,
+        ..SvgOptions::default()
+    });
+    assert!(
+        svg.contains("width=\"120\" height=\"122\" viewBox=\"1028 452 240 244\""),
+        "{svg}"
+    );
+    assert!(svg.contains("<rect width=\"240\" height=\"244\" fill=\"#"));
+}

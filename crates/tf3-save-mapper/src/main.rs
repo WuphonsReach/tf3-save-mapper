@@ -24,8 +24,10 @@ Usage: tf3map [OPTIONS] SAVE.sav
 
 Options:
   -o, --output FILE   where to write the SVG (default: the save's name with .svg, in the current folder)
-      --crop X,Y,R    draw only the square of half-width R metres round map point X,Y, at 4 m per
-                      pixel (the whole map is 8)
+      --crop X,Y,R    draw only the square of half-width R metres round map point X,Y
+      --mpp M         metres per pixel: 1 or 2 (with --crop only), or a multiple of 4 (default 8 for
+                      the whole map, 4 on a crop); the terrain is cut from every (M / 4)th point of
+                      the 4 m heightmap
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
@@ -68,7 +70,9 @@ const MAP_MARGIN: f64 = 200.0;
 /// The closest height lines may be, metres: closer, a mountain is thousands of lines.
 const MIN_CONTOUR: f64 = 1.0;
 /// Metres per pixel on a crop: the heightmap's own spacing.
-const CROP_METRES_PER_PIXEL: f64 = 4.0;
+const CROP_METRES_PER_PIXEL: u32 = 4;
+/// Metres per pixel of the whole map's vector terrain.
+const WHOLE_METRES_PER_PIXEL: u32 = 8;
 
 struct Args {
     save: PathBuf,
@@ -99,6 +103,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut game = None;
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
     let (mut grid, mut no_grid) = (None, false);
+    let mut mpp = None;
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
     while let Some(arg) = args.next() {
@@ -112,10 +117,8 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
                 )));
             }
             "-o" | "--output" => output = Some(PathBuf::from(value("--output")?)),
-            "--crop" => {
-                options.crop = Some(crop(&value("--crop")?)?);
-                options.metres_per_pixel = CROP_METRES_PER_PIXEL;
-            }
+            "--crop" => options.crop = Some(crop(&value("--crop")?)?),
+            "--mpp" => mpp = Some(metres_per_pixel(&value("--mpp")?)?),
             "--zoom" => options.zoom = zoom(&value("--zoom")?)?,
             "--road-width" => options.road_width = width(&value("--road-width")?)?,
             "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
@@ -151,6 +154,15 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
     }
     let save = save.ok_or("no save given (try --help)")?;
+    let mpp = match mpp {
+        Some(m) if m < 4 && options.crop.is_none() => {
+            return Err(format!("--mpp {m} needs --crop"));
+        }
+        Some(m) => m,
+        None if options.crop.is_some() => CROP_METRES_PER_PIXEL,
+        None => WHOLE_METRES_PER_PIXEL,
+    };
+    options.metres_per_pixel = f64::from(mpp);
     options.grid = match (grid, no_grid) {
         (Some(_), true) => return Err("--no-grid and --grid exclude each other".into()),
         (Some(step), false) => GridStep::Every(step),
@@ -275,6 +287,16 @@ fn zoom(text: &str) -> Result<u32, String> {
         Ok(n) if n >= 1 => Ok(n),
         _ => Err(format!(
             "--zoom wants a whole number, 1 or more, not {text:?}"
+        )),
+    }
+}
+
+/// Metres per pixel: 1, 2 or a multiple of 4, the heightmap's spacing.
+fn metres_per_pixel(text: &str) -> Result<u32, String> {
+    match text.parse::<u32>() {
+        Ok(m) if m == 1 || m == 2 || (m >= 4 && m % 4 == 0) => Ok(m),
+        _ => Err(format!(
+            "--mpp wants 1, 2 or a multiple of 4 (the heightmap's spacing), not {text:?}"
         )),
     }
 }
@@ -757,6 +779,20 @@ mod tests {
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
         assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
         assert!(parse(&["s.sav", "--zoom", "1.5"]).is_err());
+    }
+
+    #[test]
+    fn metres_per_pixel_are_read_whatever_the_order() {
+        let mpp = |args: &[&str]| run_args(args).options.metres_per_pixel;
+        assert_eq!(mpp(&["s.sav", "--mpp", "16"]), 16.0);
+        assert_eq!(mpp(&["s.sav", "--mpp", "2", "--crop", "0,0,100"]), 2.0);
+        assert_eq!(mpp(&["s.sav", "--crop", "0,0,100", "--mpp", "1"]), 1.0);
+        assert_eq!(mpp(&["s.sav", "--crop", "0,0,100", "--mpp", "12"]), 12.0);
+        for bad in ["0", "3", "6", "2.5", "-4", "four"] {
+            assert!(parse(&["s.sav", "--mpp", bad]).is_err(), "{bad}");
+        }
+        let finer = parse(&["s.sav", "--mpp", "2"]);
+        assert!(matches!(finer, Err(e) if e.contains("needs --crop")));
     }
 
     #[test]
