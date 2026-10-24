@@ -624,6 +624,18 @@ fn table_after(text: &str, key: &str) -> Option<Tree> {
 /// A table of numbers at the start of `text` (which starts with `{`), and the
 /// text after it. `None` if anything but numbers, commas and tables is inside.
 fn parse_tree(text: &str) -> Option<(Tree, &str)> {
+    parse_tree_at(text, 0)
+}
+
+/// How many tables may sit inside one another. The scripts' own tables go a
+/// few deep; a mod's script is third-party text, and this keeps a million
+/// opening braces from overflowing the stack.
+const MAX_TREE_DEPTH: usize = 16;
+
+fn parse_tree_at(text: &str, depth: usize) -> Option<(Tree, &str)> {
+    if depth >= MAX_TREE_DEPTH {
+        return None;
+    }
     let mut rest = text.strip_prefix('{')?;
     let mut items = Vec::new();
     loop {
@@ -632,7 +644,7 @@ fn parse_tree(text: &str) -> Option<(Tree, &str)> {
             return Some((Tree::List(items), r));
         }
         if rest.starts_with('{') {
-            let (t, r) = parse_tree(rest)?;
+            let (t, r) = parse_tree_at(rest, depth + 1)?;
             items.push(t);
             rest = r;
         } else {
@@ -728,6 +740,21 @@ mod tests {
 			},
 			maintenancePool = 12,
 	"#;
+
+    #[test]
+    fn tables_nested_too_deep_are_refused_not_followed() {
+        // The scripts' own tables are a few deep.
+        assert!(parse_tree("{ { { 1, 2 }, }, }").is_some());
+        let deep = format!("{}1{}", "{".repeat(15), "}".repeat(15));
+        assert!(parse_tree(&deep).is_some());
+        // A third-party script can hold any number of opening braces.
+        let deep = format!("{}1{}", "{".repeat(17), "}".repeat(17));
+        assert!(parse_tree(&deep).is_none());
+        let deep = "{".repeat(1_000_000);
+        assert!(parse_tree(&deep).is_none());
+        let script = format!("[\"ground_face\"] = {deep}");
+        assert!(parse_depot(&script).is_none());
+    }
 
     #[test]
     fn a_depot_script_reads() {
