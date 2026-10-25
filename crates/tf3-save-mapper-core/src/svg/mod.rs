@@ -90,6 +90,9 @@ pub struct SvgOptions {
     pub crop: Option<Crop>,
     /// The picture's width and height in pixels are multiplied by this.
     pub zoom: u32,
+    /// The build that draws, for the view record's `generator-commit`
+    /// (the caller knows it; the core does not). Left out when `None`.
+    pub generator_commit: Option<&'static str>,
 }
 
 impl Default for SvgOptions {
@@ -111,6 +114,7 @@ impl Default for SvgOptions {
             grid_dot_step: 25.0,
             crop: None,
             zoom: 1,
+            generator_commit: None,
         }
     }
 }
@@ -583,9 +587,9 @@ fn view_metadata(header: &Header, bounds: (f64, f64, f64, f64), options: &SvgOpt
 /// size, the metres per pixel, which way north is, the map box `bounds`
 /// `(x_min, x_max, y_min, y_max)` the picture spans (and for `North::Sun` the
 /// map point at its top-left corner), the crop if any, what was set away from
-/// its default, and the tool that drew it. The flag says the value is text.
-/// The save's file name and the time are left out, so the output stays the
-/// same from run to run.
+/// its default, and the tool that drew it (with its commit when the caller
+/// gives one). The flag says the value is text. The save's file name and the
+/// time are left out.
 fn view_fields(
     header: &Header,
     (x_min, x_max, y_min, y_max): (f64, f64, f64, f64),
@@ -627,6 +631,9 @@ fn view_fields(
             true,
         ),
     ]);
+    if let Some(commit) = options.generator_commit {
+        fields.push(("generator-commit", commit.to_owned(), true));
+    }
     fields
 }
 

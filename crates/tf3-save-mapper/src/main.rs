@@ -130,7 +130,10 @@ enum Parsed {
 fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> {
     let mut save = None;
     let mut output = None;
-    let mut options = SvgOptions::default();
+    let mut options = SvgOptions {
+        generator_commit: option_env!("TF3MAP_BUILD").filter(|b| !b.is_empty()),
+        ..SvgOptions::default()
+    };
     let mut keep_dead = false;
     let (mut game, mut mods) = (None, None);
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
