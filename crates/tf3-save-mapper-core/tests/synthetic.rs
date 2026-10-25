@@ -1072,6 +1072,19 @@ fn a_png_without_terrain_is_paper_and_network() {
 }
 
 #[test]
+fn the_view_record_names_the_build_when_given() {
+    let svg = render(&SvgOptions {
+        generator_commit: Some("0123456789-dirty"),
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains(&format!(
+        "generator-version=\"{}\" generator-commit=\"0123456789-dirty\"/></metadata>",
+        env!("CARGO_PKG_VERSION")
+    )));
+    assert!(!render(&SvgOptions::default()).contains("generator-commit"));
+}
+
+#[test]
 fn the_svg_carries_the_view_record_of_the_png() {
     let svg = render(&SvgOptions::default());
     assert!(
