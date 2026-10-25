@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use super::{Picture, escape, fmt_g, fmt1, layer};
+use super::{Picture, bezier_point, escape, fmt_g, fmt1, layer};
 use crate::edges::Edge;
 
 /// Halo and dot colours, given to the labelled edges in turn.
@@ -27,16 +27,6 @@ pub struct EdgeLabel {
 /// An unordered node pair.
 fn pair(a: u32, b: u32) -> (u32, u32) {
     (a.min(b), a.max(b))
-}
-
-/// The point of the Bezier with control points `c` at `t`.
-fn bezier_point(c: &[(f64, f64); 4], t: f64) -> (f64, f64) {
-    let u = 1.0 - t;
-    let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
-    (
-        (0..4).map(|i| w[i] * c[i].0).sum(),
-        (0..4).map(|i| w[i] * c[i].1).sum(),
-    )
 }
 
 /// Rounded to a tenth, as the key of a node.

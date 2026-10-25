@@ -13,7 +13,7 @@ use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
 use super::terrain::{grid_corner, land_rgb, picture_grid};
-use super::{CURVE_TOLERANCE, North};
+use super::{CURVE_TOLERANCE, North, bezier_point};
 use crate::contour::Grid;
 use crate::edges::{Edge, Family};
 use crate::terrain::{GRID_STEP, Terrain};
@@ -239,16 +239,6 @@ pub(super) fn blank((width, height): (usize, usize), colour: [u8; 3]) -> io::Res
         height,
         rgb: colour.repeat(width * height),
     })
-}
-
-/// The point at `t` (0 to 1) of the cubic with control points `c`.
-fn bezier_point(c: &[(f64, f64); 4], t: f64) -> (f64, f64) {
-    let u = 1.0 - t;
-    let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
-    (
-        w[0] * c[0].0 + w[1] * c[1].0 + w[2] * c[2].0 + w[3] * c[3].0,
-        w[0] * c[0].1 + w[1] * c[1].1 + w[2] * c[2].1 + w[3] * c[3].1,
-    )
 }
 
 /// Draw the roads into `img`, then the rails over them, each as wide as

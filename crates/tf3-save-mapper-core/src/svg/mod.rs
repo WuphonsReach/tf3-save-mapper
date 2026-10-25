@@ -579,13 +579,29 @@ fn view_record(
         .iter()
         .map(|(k, v, quoted)| {
             if *quoted {
-                format!("\"{k}\": \"{v}\"")
+                format!("\"{k}\": \"{}\"", json_escape(v))
             } else {
                 format!("\"{k}\": {v}")
             }
         })
         .collect();
     format!("{{{}}}", body.join(", "))
+}
+
+/// Text for a JSON string: quotes, backslashes and control characters escaped.
+fn json_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if c < ' ' => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// The same record as a `<metadata>` element for the SVG, `bounds` being the
@@ -738,6 +754,16 @@ fn title(layers: &Layers) -> &'static str {
     } else {
         "Roads and rails"
     }
+}
+
+/// The point at `t` (0 to 1) of the cubic with control points `c`.
+fn bezier_point(c: &[(f64, f64); 4], t: f64) -> (f64, f64) {
+    let u = 1.0 - t;
+    let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+    (
+        w[0] * c[0].0 + w[1] * c[1].0 + w[2] * c[2].0 + w[3] * c[3].0,
+        w[0] * c[0].1 + w[1] * c[1].1 + w[2] * c[2].1 + w[3] * c[3].1,
+    )
 }
 
 /// The edge's stroke width: its lanes' width, or the fallback for its
@@ -1078,6 +1104,34 @@ mod tests {
         let svg = render(&[]);
         assert!(svg.contains("seed a&lt;b&gt;&amp;&quot;c</desc>"), "{svg}");
         assert!(svg.contains("climate ::/climate/temperate.clima"));
+    }
+
+    #[test]
+    fn a_crop_needs_two_grid_steps_of_the_map_each_way() {
+        let h = header(); // 1000 x 2000 m: x from -500, y from -1000
+        let crop = |x, radius| Crop { x, y: 0.0, radius }.bounds(&h);
+        // 0 to 8 m: two steps.
+        assert_eq!(crop(4.0, 4.0), Some((0.0, 8.0, -4.0, 4.0)));
+        // 1 to 7 m widens to the grid, 0 to 8 m.
+        assert_eq!(crop(4.0, 3.0), Some((0.0, 8.0, -4.0, 4.0)));
+        // 0 to 4 m: one step.
+        assert_eq!(crop(2.0, 2.0), None);
+        // Past the east edge, two steps of the map are left.
+        assert_eq!(crop(500.0, 8.0), Some((492.0, 500.0, -8.0, 8.0)));
+        assert_eq!(crop(505.0, 8.0), None);
+    }
+
+    #[test]
+    fn view_record_strings_are_json() {
+        assert_eq!(json_escape("a\"b\\c\nd"), "a\\\"b\\\\c\\u000ad");
+        let options = SvgOptions {
+            settings: vec![("note", "say \"hi\"".to_owned())],
+            ..SvgOptions::default()
+        };
+        let corner = raster::Corner::of_box(North::Game, (-500.0, 500.0, -1000.0, 1000.0));
+        let record = view_record(&header(), &corner, (250, 500), 4.0, &options);
+        assert!(record.contains("\"note\": \"say \\\"hi\\\"\""), "{record}");
+        assert!(record.contains("\"x-max\": 500,"), "{record}");
     }
 
     #[test]
