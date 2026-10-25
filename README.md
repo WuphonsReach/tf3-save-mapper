@@ -79,23 +79,37 @@ The binary is `target/release/tf3map`.
 
 ## Speed
 
-Measured on 2026-10-24, release build, one machine, one save at a time. `tf3map` ran with its default layers (median of three runs); the Python prototype's `terrain_map.py` ran once with `--depots --stations`. Wall-clock time and peak memory. Saves are catalog saves, named by mod.io id.
+Your mileage will vary with the machine, the disk and what the save holds. This is what I have seen locally, not a promise.
 
-| mod.io id | Edges (road / track) | `tf3map` | Python prototype | Faster by |
-|---|---|---|---|---|
-| 6397878 | 1,109 / 2,203 | 0.34 s, 222 MB | 44 s, 605 MB | 130× |
-| 6418734 | 1,252 / 0 | 0.36 s, 212 MB | 43 s, 578 MB | 118× |
-| 6422263 | 3,909 / 5,397 | 1.2 s, 654 MB | 79 s, 1.8 GB | 66× |
-| 6425796 | 5,176 / 7,152 | 1.8 s, 844 MB | 118 s, 2.4 GB | 67× |
-| 6431760 | 5,295 / 8,217 | 1.9 s, 944 MB | 127 s, 2.8 GB | 67× |
-| 6417707 | 8,100 / 13,009 | 1.9 s, 986 MB | 142 s, 3.1 GB | 74× |
-| 6425884 | 8,849 / 8,317 | 2.1 s, 1.0 GB | 142 s, 3.2 GB | 67× |
-| 6419666 | 7,896 / 10,665 | 2.2 s, 1.2 GB | 241 s, 3.6 GB | 108× |
-| 6432180 | 8,193 / 7,487 | 2.8 s, 1.5 GB | 310 s, 4.1 GB | 109× |
+Measured on 2026-10-24 with `tf3map` 0.5.0 (release build) on 30 catalog saves, picked evenly by file size from 207 distinct ones (14 to 394 MB). One machine, one save at a time, default options. `tf3map` time is the median of three runs and memory the highest peak; the Python prototype's `terrain_map.py` ran once with its defaults, which match ours. All 60 runs worked.
 
-The busy saves (over 1,000 vehicles, 120 to 190 industries, rail, ships and aircraft) take 1 to 3 seconds. Time and memory grow with the size of the save's data stream, not only with the number of edges.
+| Save file size | Saves | `tf3map` time | `tf3map` peak memory |
+|---|---|---|---|
+| under 50 MB | 7 | 0.1 to 0.4 s | 75 to 360 MB |
+| 50 to 100 MB | 11 | 0.3 to 0.8 s | 250 to 490 MB |
+| 100 to 200 MB | 9 | 0.7 to 1.9 s | 430 MB to 1.5 GB |
+| over 200 MB | 3 | 1.6 to 2.6 s | 1.0 to 1.7 GB |
 
-A further sample of 69 catalog saves (every third entry of a list of 208) ran without a failure: median 0.7 s and 370 MB, slowest 2.9 s and 1.6 GB.
+- **Typical save:** under a second and under 500 MB. The largest one measured (394 MB file, 13,948 road edges) took 2.6 s and 1.7 GB. All 30 together took 22.7 s.
+- **Against the prototype:** a median of 100 times faster (67 to 156 times) and about 3 times less memory (2.5 to 3.1 times). The prototype took 9 s to 273 s per save and peaked at 5.1 GB, so keep its parallel runs few. For `tf3map`, budget at most about 1.7 GB per job when running several at once.
+- **What drives it:** time and memory follow the size of the save's data stream more than the number of edges, so two saves with equal edge counts can differ.
+- **Format 605:** six saves written by the newer 40425 build (format 605), including the 20,480 by 40,960 m Giant map, drew without a failure in 1.0 to 1.4 s and 0.9 to 1.1 GB each. On two of them the prototype's counts of road and track edges, depots, industry badges and station pieces equalled ours; the geometry was not compared.
+
+Sample of the 30 (mod.io ids):
+
+| mod.io id | File | Edges (road / track) | `tf3map` | Python prototype | Faster by |
+|---|---|---|---|---|---|
+| 6432410 | 14 MB | 487 / 0 | 0.11 s, 75 MB | 9 s, 224 MB | 82× |
+| 6430148 | 43 MB | 1,290 / 0 | 0.33 s, 245 MB | 31 s, 601 MB | 92× |
+| 6430332 | 72 MB | 1,917 / 3,617 | 0.58 s, 361 MB | 77 s, 996 MB | 132× |
+| 6105556 | 93 MB | 5,964 / 105 | 0.64 s, 386 MB | 56 s, 1.1 GB | 87× |
+| 6421217 | 118 MB | 3,004 / 4,000 | 0.83 s, 515 MB | 75 s, 1.4 GB | 91× |
+| 6442125 | 189 MB | 5,115 / 5,134 | 1.2 s, 786 MB | 166 s, 2.3 GB | 139× |
+| 6428444 | 195 MB | 4,198 / 7,038 | 1.9 s, 1.5 GB | 273 s, 4.2 GB | 141× |
+| 6425884 | 225 MB | 8,849 / 8,317 | 1.6 s, 1.0 GB | 111 s, 3.0 GB | 69× |
+| 6418069 | 394 MB | 13,948 / 730 | 2.6 s, 1.7 GB | 198 s, 5.1 GB | 75× |
+
+Only time, memory and whether the run worked were compared in this round; the drawn contents were compared element by element earlier.
 
 ## How it relates to other projects
 
