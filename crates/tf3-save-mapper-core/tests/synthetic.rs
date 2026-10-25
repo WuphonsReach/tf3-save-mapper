@@ -358,7 +358,7 @@ fn a_crop_keeps_the_map_frame_and_draws_only_what_shows() {
     assert!(!svg.contains("data-a=\"68\""));
     assert!(!svg.contains("id=\"industries\""));
     // The terrain is cut from the crop's part of the grid only.
-    assert!(svg.contains("id=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\" transform=\"translate(1028 452)\""));
+    assert!(svg.contains("id=\"terrain\" class=\"layer\" data-layer=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\" transform=\"translate(1028 452)\""));
     assert!(svg.contains("<rect width=\"240\" height=\"244\""));
     // The default grid on a crop: a third of 240 m, rounded down to 50 m.
     assert!(svg.contains("Grid 50 m"));
@@ -812,7 +812,7 @@ fn metres_per_pixel_size_the_picture_and_thin_the_terrain() {
     );
     assert!(svg.contains("<rect width=\"4096\" height=\"2048\" fill=\"#"));
     // Height lines are half a pixel wide, in metres.
-    assert!(svg.contains("id=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
+    assert!(svg.contains("id=\"contours-minor\" class=\"layer\" data-layer=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
 
     // 12 m per pixel keeps every third point: 342 of the 1025, the last at
     // 4092 m, so the terrain stops 4 m short of the map's right edge.
@@ -905,7 +905,8 @@ fn a_raster_terrain_is_one_shaded_picture_under_the_network() {
         ..SvgOptions::default()
     });
     assert!(svg.contains(
-        "<g id=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\">\
+        "<g id=\"terrain\" class=\"layer\" data-layer=\"terrain\" inkscape:groupmode=\"layer\" \
+         inkscape:label=\"Terrain\">\
          <image width=\"4096\" height=\"2048\" xlink:href=\"data:image/png;base64,"
     ));
     assert!(!svg.contains("class=\"band\"") && !svg.contains("id=\"contours"));
@@ -1112,4 +1113,91 @@ fn the_svg_carries_the_view_record_of_the_png() {
         "x-min=\"-1020\" x-max=\"-780\" y-min=\"328\" y-max=\"572\" x-top=\"-780\" \
          y-left=\"572\" crop-x=\"-900\" crop-y=\"450\" crop-radius=\"120\""
     ));
+}
+
+#[test]
+fn every_layer_is_marked_as_one_and_no_item_group_is() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let mut found = read_edges(&stream).unwrap();
+    retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    let table = read_model_table(&stream).unwrap();
+    let industries = read_instances(&stream, &table, &["industries/"]);
+    let mains = industry_models(&table, &industries);
+    let depots = read_instances(&stream, &table, &["depots/", "assets/ingo_bootsschuppen/"]);
+    let layers = Layers {
+        terrain: Some(read_terrain(&stream).unwrap()),
+        industries: industries
+            .iter()
+            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .collect(),
+        depots: depots.clone(),
+        coverage: depots,
+        depot_specs: HashMap::from([("maintenance-buildings", maint_spec())]),
+        vehicles: read_instances(&stream, &table, &["vehicle/"]),
+        labels: vec![EdgeLabel {
+            a: 100,
+            b: 101,
+            text: None,
+        }],
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &found, &layers, &SvgOptions::default()).unwrap();
+    let svg = String::from_utf8(out).unwrap();
+    assert!(svg.starts_with(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" \
+         xmlns:inkscape=\"http://www.inkscape.org/namespaces/inkscape\" "
+    ));
+
+    let (mut layers_seen, mut items_seen) = (Vec::new(), 0);
+    for tag in svg.split("<g ").skip(1) {
+        let tag = &tag[..tag.find('>').unwrap()];
+        if tag.contains("inkscape:groupmode=\"layer\"") {
+            // id, class, data-layer and Inkscape's two, in the prototype's order.
+            let id = tag.strip_prefix("id=\"").unwrap();
+            let id = &id[..id.find('"').unwrap()];
+            assert!(
+                tag.starts_with(&format!(
+                    "id=\"{id}\" class=\"layer\" data-layer=\"{id}\" \
+                     inkscape:groupmode=\"layer\" inkscape:label=\""
+                )),
+                "{tag}"
+            );
+            layers_seen.push(id.to_owned());
+        } else {
+            assert!(
+                !tag.contains("class=\"layer\"") && !tag.contains("data-layer"),
+                "{tag}"
+            );
+            items_seen += 1;
+        }
+    }
+    for id in [
+        "background",
+        "terrain",
+        "contours-minor",
+        "grid",
+        "coverage",
+        "coverage-maintenance-buildings",
+        "roads",
+        "road-town_old_small",
+        "rails",
+        "maintenance-buildings",
+        "industries",
+        "industry-farm",
+        "vehicles",
+        "vehicles-bus",
+        "labels",
+        "edge-labels",
+        "nodes",
+        "grid-labels",
+        "compass",
+    ] {
+        assert!(layers_seen.iter().any(|l| l == id), "{id}: {layers_seen:?}");
+    }
+    // The vehicles, depots, coverage circles, badge, labels and nodes.
+    assert!(items_seen >= 8, "{items_seen}");
+    assert!(svg.contains("<g id=\"vehicle-1\" class=\"vehicle bus\""));
+    assert!(svg.contains("class=\"depot maintenance-buildings\""));
 }

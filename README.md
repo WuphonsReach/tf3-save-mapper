@@ -17,6 +17,8 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
 - A **compass rose**, in the lower right corner unless asked elsewhere.
 
+Each layer is a group marked as an Inkscape layer with a readable name (`inkscape:groupmode="layer"`, `inkscape:label`), so the Layers panel lists them in drawing order and each can be hidden or locked. As in the Python prototype, it also has `class="layer"` and its id in `data-layer`, so a page script can find the layers with `g.layer`. A group that holds one vehicle, depot or badge inside a layer is not a layer.
+
 The shapes of stations, depots and industry footprints come from the game's own files, read from your install when the tool runs (see below). Without an install the map still has the terrain, the network and the industry badges.
 
 Drawing choices: labels are left out rather than moved, one outline width (1.5 m), no inner lines, plain dark anchors. By default the compass follows the game's own axes (x east, y north); `--north sun` turns the map to the north the sun's path gives. The colours are our own, not the game's.

@@ -5,7 +5,8 @@
 //! own frame, `docs/compass.md` in tf3-save-format), or with `North::Sun` x up
 //! and y to the left. The `viewBox` is the map in metres (or the crop), so
 //! widths are in metres too and scale with the picture. Layers are
-//! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
+//! groups Inkscape shows as layers, each also `class="layer"` with its id in
+//! `data-layer` as in the prototype (`layer`), bottom to top: `background`, `terrain`,
 //! `grid`, `coverage`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
 //! `vehicles`, `labels`, `grid-labels` and `compass`.
@@ -300,11 +301,16 @@ impl View {
     }
 }
 
-/// The opening tag of a layer: a group Inkscape shows as one.
+/// The opening tag of a layer: a group Inkscape shows as one (its
+/// `groupmode` and `label`), and, as the prototype writes it, `class="layer"`
+/// with the id repeated in `data-layer`, so a page script can list the layers
+/// with `g.layer`. A group inside a layer that holds one item (a vehicle, a
+/// depot, a badge) is no layer and has none of these.
 fn layer(id: &str, label: &str, attrs: &str) -> String {
+    let id = escape(id);
     format!(
-        "<g id=\"{}\" inkscape:groupmode=\"layer\" inkscape:label=\"{}\"{attrs}>",
-        escape(id),
+        "<g id=\"{id}\" class=\"layer\" data-layer=\"{id}\" inkscape:groupmode=\"layer\" \
+         inkscape:label=\"{}\"{attrs}>",
         escape(label)
     )
 }
