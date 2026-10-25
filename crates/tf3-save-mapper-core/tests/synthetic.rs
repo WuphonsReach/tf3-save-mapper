@@ -812,7 +812,7 @@ fn metres_per_pixel_size_the_picture_and_thin_the_terrain() {
     );
     assert!(svg.contains("<rect width=\"4096\" height=\"2048\" fill=\"#"));
     // Height lines are half a pixel wide, in metres.
-    assert!(svg.contains("id=\"contours-minor\" class=\"layer\" data-layer=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
+    assert!(svg.contains("id=\"contours-minor\" class=\"layer\" data-layer=\"contours-minor\" inkscape:groupmode=\"layer\" inkscape:label=\"Height lines: minor\" fill=\"none\" stroke=\"#b8996a\" stroke-width=\"8\""));
 
     // 12 m per pixel keeps every third point: 342 of the 1025, the last at
     // 4092 m, so the terrain stops 4 m short of the map's right edge.

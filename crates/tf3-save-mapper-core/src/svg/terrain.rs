@@ -294,10 +294,16 @@ pub(super) fn write(
     writeln!(out, "{}", layer("contours", "Height lines", ""))?;
     let every = options.index_every.max(1);
     for (id, label, colour, width, index) in [
-        ("contours-minor", "Height lines", CONTOUR_MINOR, thin, false),
+        (
+            "contours-minor",
+            "Height lines: minor",
+            CONTOUR_MINOR,
+            thin,
+            false,
+        ),
         (
             "contours-index",
-            "Index height lines",
+            "Height lines: index",
             CONTOUR_INDEX,
             2.0 * thin,
             true,
