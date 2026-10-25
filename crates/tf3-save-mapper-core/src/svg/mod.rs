@@ -75,8 +75,8 @@ pub struct SvgOptions {
     pub raster: bool,
     /// Where the compass rose goes, if anywhere.
     pub rose: Option<Rose>,
-    /// The rose circle's diameter, metres. Default 250, at most an eighth of
-    /// the picture's shorter side.
+    /// The rose circle's diameter, metres. `None`: 250, or an eighth of the
+    /// picture's shorter side when that is less. A size given is not capped.
     pub rose_size: Option<f64>,
     /// Which way is up.
     pub north: North,

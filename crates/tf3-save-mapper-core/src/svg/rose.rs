@@ -8,7 +8,8 @@
 
 use super::{Picture, Rose, View, fmt1, fmt2, layer};
 
-/// Metres across the circle by default, at most an eighth of the picture's short side.
+/// Metres across the circle by default, or an eighth of the picture's short
+/// side when that is less.
 const DIAMETER: f64 = 250.0;
 
 pub(super) fn compass(
