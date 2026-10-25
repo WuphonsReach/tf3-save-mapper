@@ -33,7 +33,8 @@ Options:
                       shading, water) instead of vector bands, water and height lines
       --png           write one flat PNG instead of the SVG: the --raster terrain with the roads and
                       rails drawn into its pixels, and nothing else (no stations, depots, industries,
-                      grid or rose); a tf3map:view text chunk says where it lies on the map
+                      vehicles, labels, grid or rose); a tf3map:view text chunk says where it lies
+                      on the map
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
@@ -49,8 +50,8 @@ Options:
       --no-stations   leave out the stations
       --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
                       upper-right, off, or X,Y (map metres) for its centre
-      --rose-size M   the rose circle's diameter in metres (default 250, at most an eighth of the
-                      picture's shorter side)
+      --rose-size M   the rose circle's diameter in metres (default 250, or an eighth of the
+                      picture's shorter side when that is less)
       --no-rose       leave out the compass rose (the same as --rose off)
       --north N       which way north is drawn: game (default: up is +y, right is +x, as the
                       game's name compass has it) or sun (up is +x, right is -y, from the sun's path)
@@ -168,10 +169,14 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--crop" => options.crop = Some(crop(&value("--crop")?)?),
             "--mpp" => mpp = Some(metres_per_pixel(&value("--mpp")?)?),
             "--zoom" => options.zoom = zoom(&value("--zoom")?)?,
-            "--road-width" => options.road_width = width(&value("--road-width")?)?,
-            "--rail-width" => options.rail_width = width(&value("--rail-width")?)?,
-            "--min-width" => options.min_width = metres(&value("--min-width")?, 0.0)?,
-            "--contour" => options.contour_step = metres(&value("--contour")?, MIN_CONTOUR)?,
+            "--road-width" => options.road_width = width("--road-width", &value("--road-width")?)?,
+            "--rail-width" => options.rail_width = width("--rail-width", &value("--rail-width")?)?,
+            "--min-width" => {
+                options.min_width = metres("--min-width", &value("--min-width")?, 0.0)?
+            }
+            "--contour" => {
+                options.contour_step = metres("--contour", &value("--contour")?, MIN_CONTOUR)?
+            }
             "--game" => game = Some(PathBuf::from(value("--game")?)),
             "--mods" => mods = Some(PathBuf::from(value("--mods")?)),
             "--no-bands" => options.bands = false,
@@ -184,12 +189,16 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--no-stations" => stations = false,
             "--no-rose" => options.rose = None,
             "--rose" => options.rose = rose(&value("--rose")?)?,
-            "--rose-size" => options.rose_size = Some(width(&value("--rose-size")?)?),
+            "--rose-size" => {
+                options.rose_size = Some(width("--rose-size", &value("--rose-size")?)?)
+            }
             "--north" => options.north = north(&value("--north")?)?,
             "--grid" => grid = Some(grid_step(&value("--grid")?)?),
             "--no-grid" => no_grid = true,
             "--grid-lines" => options.grid_lines = grid_lines(&value("--grid-lines")?)?,
-            "--grid-dot-step" => options.grid_dot_step = width(&value("--grid-dot-step")?)?,
+            "--grid-dot-step" => {
+                options.grid_dot_step = width("--grid-dot-step", &value("--grid-dot-step")?)?
+            }
             "--keep-dead" => keep_dead = true,
             "--vehicles" => vehicles = true,
             "--label" => labels.push(label(&value("--label")?)?),
@@ -291,11 +300,13 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     })))
 }
 
-/// A number of metres above 0.
-fn width(text: &str) -> Result<f64, String> {
+/// A number of metres above 0, for the option `flag`.
+fn width(flag: &str, text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(w) if w.is_finite() && w > 0.0 => Ok(w),
-        _ => Err(format!("want a number of metres above 0, not {text:?}")),
+        _ => Err(format!(
+            "{flag} wants a number of metres above 0, not {text:?}"
+        )),
     }
 }
 
@@ -424,12 +435,12 @@ fn grid_lines(text: &str) -> Result<GridLines, String> {
     })
 }
 
-/// A number of metres, at least `least`.
-fn metres(text: &str, least: f64) -> Result<f64, String> {
+/// A number of metres, at least `least`, for the option `flag`.
+fn metres(flag: &str, text: &str, least: f64) -> Result<f64, String> {
     match text.parse::<f64>() {
         Ok(m) if m.is_finite() && m >= least => Ok(m),
         _ => Err(format!(
-            "want a number of metres of {least} or more, not {text:?}"
+            "{flag} wants a number of metres of {least} or more, not {text:?}"
         )),
     }
 }
@@ -440,8 +451,11 @@ fn run(args: Args) -> Result<(), Failure> {
         (Ok(a), Ok(b)) => a == b,
         _ => false,
     };
-    if names_a_save(&args.output) || same_file {
+    if names_a_save(&args.output) {
         return Err("the output must not be a .sav file".to_owned().into());
+    }
+    if same_file {
+        return Err("the output must not be the save itself".to_owned().into());
     }
     if let Some(dir) = &args.mods
         && !dir.is_dir()
@@ -468,12 +482,27 @@ fn run(args: Args) -> Result<(), Failure> {
     if let Some(c) = args.options.crop
         && c.bounds(&header).is_none()
     {
-        return Err(Failure {
-            code: EXIT_USAGE,
-            message: format!(
+        let (half_w, half_h) = (
+            f64::from(header.map_width) / 2.0,
+            f64::from(header.map_height) / 2.0,
+        );
+        let meets_map = (c.x - c.radius) < half_w
+            && (c.x + c.radius) > -half_w
+            && (c.y - c.radius) < half_h
+            && (c.y + c.radius) > -half_h;
+        let message = if meets_map {
+            "the crop shows less than two grid steps (8 m) of the map each way: \
+             widen it or move it further onto the map"
+                .to_owned()
+        } else {
+            format!(
                 "the crop lies outside the map ({} x {} m, centred on 0,0)",
                 header.map_width, header.map_height
-            ),
+            )
+        };
+        return Err(Failure {
+            code: EXIT_USAGE,
+            message,
         });
     }
     let mut edges = read_edges(&stream).map_err(cannot_read)?;
@@ -503,6 +532,9 @@ fn run(args: Args) -> Result<(), Failure> {
         layers.labels = args.labels.clone();
     } else if args.edge_ids {
         eprintln!("--edge-ids works with --label: no ids written");
+    }
+    if !args.names.is_empty() && !args.vehicles {
+        eprintln!("--name works with --vehicles: no names written");
     }
     write_output(&args, &header, &edges, &layers)?;
 
@@ -1083,6 +1115,18 @@ mod tests {
             parse(&["a.sav", "--min-width", "0"]),
             Ok(Parsed::Run(_))
         ));
+        // A bad number names its option.
+        for flag in [
+            "--road-width",
+            "--rail-width",
+            "--min-width",
+            "--contour",
+            "--rose-size",
+            "--grid-dot-step",
+        ] {
+            let err = parse(&["a.sav", flag, "-1"]).err().unwrap();
+            assert!(err.starts_with(&format!("{flag} wants ")), "{err}");
+        }
     }
 
     #[test]

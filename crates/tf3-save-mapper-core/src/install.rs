@@ -11,6 +11,7 @@
 //! its folder under the mod.io game's `mods` folder, one folder per mod.
 
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::geometry;
@@ -36,6 +37,8 @@ const MODS_FOLDERS: &[&str] = &[
 /// The end of a Steam folder under the folder Steam keeps its data in.
 const STEAM_DATA: &str = ".local/share/Steam";
 const GAME_FOLDER: &str = "Transport Fever 3";
+/// A mod's script larger than this is not read: no depot script is near it.
+const MAX_MOD_SCRIPT: u64 = 16 << 20;
 
 /// A rectangle in a model's own axes: (a0, b0, a1, b1), a along its x axis.
 pub type Rect = (f64, f64, f64, f64);
@@ -93,7 +96,8 @@ impl Mods {
     }
 
     /// The text of the file at `rel` in the first mod folder that has it:
-    /// the mods folders in turn, and each one's mod folders by name.
+    /// the mods folders in turn, and each one's mod folders by name. A file
+    /// over `MAX_MOD_SCRIPT` bytes counts as missing.
     fn script(&self, rel: &str) -> Option<String> {
         self.dirs.iter().find_map(|dir| {
             let mut mods: Vec<String> = std::fs::read_dir(dir)
@@ -102,8 +106,11 @@ impl Mods {
                 .collect();
             mods.sort();
             mods.iter().find_map(|m| {
-                let bytes = std::fs::read(dir.join(m).join(rel)).ok()?;
-                Some(String::from_utf8_lossy(&bytes).into_owned())
+                let file = std::fs::File::open(dir.join(m).join(rel)).ok()?;
+                let mut bytes = Vec::new();
+                file.take(MAX_MOD_SCRIPT + 1).read_to_end(&mut bytes).ok()?;
+                (bytes.len() as u64 <= MAX_MOD_SCRIPT)
+                    .then(|| String::from_utf8_lossy(&bytes).into_owned())
             })
         })
     }

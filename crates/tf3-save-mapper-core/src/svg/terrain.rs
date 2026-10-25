@@ -145,8 +145,8 @@ pub(super) fn grid_span(
         return (0..=last_c, 0..=last_r);
     };
     let (tw, th) = t.size();
-    let at = |v: f64, half: u32, last: usize| {
-        ((v + f64::from(half) / 2.0) / GRID_STEP)
+    let at = |v: f64, size: u32, last: usize| {
+        ((v + f64::from(size) / 2.0) / GRID_STEP)
             .round()
             .clamp(0.0, last as f64) as usize
     };

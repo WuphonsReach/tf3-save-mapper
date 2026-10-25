@@ -13,7 +13,7 @@ use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
 use super::terrain::{grid_corner, land_rgb, picture_grid};
-use super::{CURVE_TOLERANCE, North};
+use super::{CURVE_TOLERANCE, North, bezier_point};
 use crate::contour::Grid;
 use crate::edges::{Edge, Family};
 use crate::terrain::{GRID_STEP, Terrain};
@@ -70,8 +70,14 @@ impl Sampling {
     }
 }
 
-/// The error for a picture of more than `MAX_PIXELS`.
+/// The error for a picture of no pixels, or of more than `MAX_PIXELS`.
 pub(super) fn check_size((w, h): (usize, usize)) -> io::Result<()> {
+    if w == 0 || h == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("the picture would be {w} x {h} pixels: lower --mpp or widen the crop"),
+        ));
+    }
     if w.saturating_mul(h) > MAX_PIXELS {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -235,16 +241,6 @@ pub(super) fn blank((width, height): (usize, usize), colour: [u8; 3]) -> io::Res
     })
 }
 
-/// The point at `t` (0 to 1) of the cubic with control points `c`.
-fn bezier_point(c: &[(f64, f64); 4], t: f64) -> (f64, f64) {
-    let u = 1.0 - t;
-    let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
-    (
-        w[0] * c[0].0 + w[1] * c[1].0 + w[2] * c[2].0 + w[3] * c[3].0,
-        w[0] * c[0].1 + w[1] * c[1].1 + w[2] * c[2].1 + w[3] * c[3].1,
-    )
-}
-
 /// Draw the roads into `img`, then the rails over them, each as wide as
 /// `width` gives (at least one pixel). A bend is drawn as chords of about 8
 /// pixels. `spacing` is the metres per pixel.
@@ -402,6 +398,8 @@ mod tests {
         assert_eq!(s.size(65, 9, North::Game), (256, 32));
         assert!(check_size((8000, 8000)).is_ok());
         assert!(check_size((8001, 8000)).is_err());
+        assert!(check_size((0, 8)).is_err(), "no pixels");
+        assert!(check_size((1, 1)).is_ok());
     }
 
     #[test]
