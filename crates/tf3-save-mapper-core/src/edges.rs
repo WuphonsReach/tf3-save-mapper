@@ -8,7 +8,7 @@
 //! pattern: every record but the first starts right after the previous
 //! record's base type, which ends in `.street`.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use memchr::memmem;
 
@@ -389,19 +389,24 @@ fn free_ids_at(bytes: &[u8]) -> Option<HashSet<u32>> {
                 .get(text_at..text_at + digits)
                 .is_some_and(|t| t.iter().all(u8::is_ascii_digit))
     };
-    (run_start + run_len..words.len().saturating_sub(3))
-        .filter(|&j| is_trailer(j))
-        .find_map(|end| {
-            // The count word: its index + 1 + count is the trailer.
-            (0..run_start).rev().find_map(|i| {
-                if i + 1 + words[i] as usize != end {
-                    return None;
-                }
-                let ids: HashSet<u32> = words[i + 1..end].iter().copied().collect();
-                let all_ids = ids.len() == end - i - 1 && ids.iter().all(|&id| id < FREE_MAX_ID);
-                all_ids.then_some(ids)
-            })
+    let ends = run_start + run_len..words.len().saturating_sub(3);
+    // The words before the run that could be the count word, by the word
+    // they reach (index + 1 + count), nearest the run first. Looked up by
+    // trailer, so many trailer-like words do not each scan the whole tail.
+    let mut reaching: HashMap<usize, Vec<usize>> = HashMap::new();
+    for i in (0..run_start).rev() {
+        let end = (i + 1).saturating_add(words[i] as usize);
+        if ends.contains(&end) {
+            reaching.entry(end).or_default().push(i);
+        }
+    }
+    ends.filter(|&j| is_trailer(j)).find_map(|end| {
+        reaching.get(&end)?.iter().find_map(|&i| {
+            let ids: HashSet<u32> = words[i + 1..end].iter().copied().collect();
+            let all_ids = ids.len() == end - i - 1 && ids.iter().all(|&id| id < FREE_MAX_ID);
+            all_ids.then_some(ids)
         })
+    })
 }
 
 /// Drop the edges with an end node in `free`: the table keeps a deleted road
@@ -488,5 +493,27 @@ mod tests {
     fn free_ids_need_a_long_ascending_run() {
         assert_eq!(read_free_ids(&[0u8; 4096]), None);
         assert_eq!(read_free_ids(&[]), None);
+    }
+
+    #[test]
+    fn the_free_id_list_ends_at_the_trailer_its_count_reaches() {
+        let head = [500_000, 400_000];
+        let run: Vec<u32> = (10_000..11_000).collect();
+        // Inside the list, words that read as a trailer but that no count word reaches.
+        let inner = [2, 9, 1, u32::from(b'7')];
+        let tail = [600, 500];
+        let count = head.len() + run.len() + inner.len() + tail.len();
+        let mut words: Vec<u32> = vec![u32::MAX; 3];
+        words.push(count as u32);
+        words.extend(head);
+        words.extend(&run);
+        words.extend(inner);
+        words.extend(tail);
+        words.extend([2, 1, 4, u32::from_le_bytes(*b"1729")]);
+        words.extend([u32::MAX; 4]);
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let free = read_free_ids(&bytes).unwrap();
+        assert_eq!(free.len(), count);
+        assert!(free.contains(&400_000) && free.contains(&10_999) && free.contains(&500));
     }
 }

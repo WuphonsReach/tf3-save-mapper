@@ -70,8 +70,14 @@ impl Sampling {
     }
 }
 
-/// The error for a picture of more than `MAX_PIXELS`.
+/// The error for a picture of no pixels, or of more than `MAX_PIXELS`.
 pub(super) fn check_size((w, h): (usize, usize)) -> io::Result<()> {
+    if w == 0 || h == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("the picture would be {w} x {h} pixels: lower --mpp or widen the crop"),
+        ));
+    }
     if w.saturating_mul(h) > MAX_PIXELS {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -402,6 +408,8 @@ mod tests {
         assert_eq!(s.size(65, 9, North::Game), (256, 32));
         assert!(check_size((8000, 8000)).is_ok());
         assert!(check_size((8001, 8000)).is_err());
+        assert!(check_size((0, 8)).is_err(), "no pixels");
+        assert!(check_size((1, 1)).is_ok());
     }
 
     #[test]

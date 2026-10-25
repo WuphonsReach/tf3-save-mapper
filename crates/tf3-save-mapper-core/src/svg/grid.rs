@@ -25,6 +25,9 @@ const MIN_DOT_PIXELS: f64 = 10.0;
 const LABEL_EM: f64 = 0.62;
 /// The major step when a minor step is asked for, metres.
 pub(super) const MAJOR: u32 = 1000;
+/// A grid with more crosses than this is refused: `--grid 1` on a big map
+/// would be gigabytes of marks.
+const MAX_CROSSES: f64 = 1_000_000.0;
 
 /// Which grid the picture gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +66,24 @@ pub(super) fn auto_step(short_side: f64, cropped: bool) -> u32 {
         .unwrap_or(power);
     let step = step.round().max(1.0) as u32;
     if cropped { step } else { step.max(1000) }
+}
+
+/// An error when a grid every `step` metres over `view` would have more
+/// than `MAX_CROSSES` crosses.
+pub(super) fn check_size(view: &View, step: u32) -> std::io::Result<()> {
+    let lines = |metres: f64| (metres / f64::from(step)).floor() + 1.0;
+    let crosses = lines(view.width) * lines(view.height);
+    if crosses > MAX_CROSSES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "a grid every {step} m would have {crosses} crosses, more than {} million: \
+                 raise --grid",
+                MAX_CROSSES / 1_000_000.0
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The smallest multiple of `step` at or above `v`.
@@ -318,6 +339,17 @@ mod tests {
         assert_eq!(auto_step(500.0, true), 100);
         assert_eq!(auto_step(3000.0, true), 1000);
         assert_eq!(auto_step(2.0, true), 1);
+    }
+
+    #[test]
+    fn a_grid_of_too_many_crosses_is_refused() {
+        let p = picture();
+        let view = View::new(&p, (-2048.0, 2048.0, -1024.0, 1024.0));
+        // 4097 x 2049 crosses at 1 m; 820 x 410 at 5 m.
+        let err = check_size(&view, 1).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("raise --grid"), "{err}");
+        assert!(check_size(&view, 5).is_ok());
     }
 
     #[test]

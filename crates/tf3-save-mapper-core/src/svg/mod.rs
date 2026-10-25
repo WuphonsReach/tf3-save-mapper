@@ -440,6 +440,7 @@ pub fn write_svg(
     };
     let grid_labels = match step {
         Some((step, major)) => {
+            grid::check_size(&view, step)?;
             let (marks, labels) = grid::layers(
                 &picture,
                 &view,
