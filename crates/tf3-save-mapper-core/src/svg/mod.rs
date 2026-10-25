@@ -5,7 +5,8 @@
 //! own frame, `docs/compass.md` in tf3-save-format), or with `North::Sun` x up
 //! and y to the left. The `viewBox` is the map in metres (or the crop), so
 //! widths are in metres too and scale with the picture. Layers are
-//! groups Inkscape shows as layers, bottom to top: `background`, `terrain`,
+//! groups Inkscape shows as layers, each also `class="layer"` with its id in
+//! `data-layer` as in the prototype (`layer`), bottom to top: `background`, `terrain`,
 //! `grid`, `coverage`, `stations`, `roads` and `rails` (each with one sublayer per street
 //! or track type), the depot layers, `stations-street`, `industries`,
 //! `vehicles`, `labels`, `grid-labels` and `compass`.
@@ -50,7 +51,7 @@ const CURVE_TOLERANCE: f64 = 0.25;
 /// The outline of a station, depot or industry footprint, metres.
 const OUTLINE: f64 = 1.5;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SvgOptions {
     /// Stroke width of a road whose lanes did not read, metres. Every other
     /// edge is as wide as its lanes.
@@ -93,6 +94,10 @@ pub struct SvgOptions {
     /// The build that draws, for the view record's `generator-commit`
     /// (the caller knows it; the core does not). Left out when `None`.
     pub generator_commit: Option<&'static str>,
+    /// Settings the caller made that this module cannot see (which layers it
+    /// left out, which it added), as name and value, written to the view
+    /// record after the ones found here. A value is text.
+    pub settings: Vec<(&'static str, String)>,
 }
 
 impl Default for SvgOptions {
@@ -115,6 +120,7 @@ impl Default for SvgOptions {
             crop: None,
             zoom: 1,
             generator_commit: None,
+            settings: Vec::new(),
         }
     }
 }
@@ -300,11 +306,16 @@ impl View {
     }
 }
 
-/// The opening tag of a layer: a group Inkscape shows as one.
+/// The opening tag of a layer: a group Inkscape shows as one (its
+/// `groupmode` and `label`), and, as the prototype writes it, `class="layer"`
+/// with the id repeated in `data-layer`, so a page script can list the layers
+/// with `g.layer`. A group inside a layer that holds one item (a vehicle, a
+/// depot, a badge) is no layer and has none of these.
 fn layer(id: &str, label: &str, attrs: &str) -> String {
+    let id = escape(id);
     format!(
-        "<g id=\"{}\" inkscape:groupmode=\"layer\" inkscape:label=\"{}\"{attrs}>",
-        escape(id),
+        "<g id=\"{id}\" class=\"layer\" data-layer=\"{id}\" inkscape:groupmode=\"layer\" \
+         inkscape:label=\"{}\"{attrs}>",
         escape(label)
     )
 }
@@ -543,7 +554,13 @@ pub fn write_png(
     raster::draw_network(&mut img, &corner, sampling.spacing, &edges, |e| {
         edge_width(e, options)
     });
-    let record = view_record(header, &corner, size, sampling.spacing, options);
+    // A flat picture has no grid or rose, so neither is a setting of it.
+    let flat = SvgOptions {
+        grid: GridStep::Auto,
+        rose: SvgOptions::default().rose,
+        ..options.clone()
+    };
+    let record = view_record(header, &corner, size, sampling.spacing, &flat);
     out.write_all(&raster::encode(&img, Some(("tf3map:view", record)))?)
 }
 
@@ -623,6 +640,13 @@ fn view_fields(
             ("crop-radius", fmt_g(c.radius), false),
         ]);
     }
+    fields.extend(non_default_settings(options));
+    fields.extend(
+        options
+            .settings
+            .iter()
+            .map(|(name, value)| (*name, value.clone(), true)),
+    );
     fields.extend([
         ("generator", "tf3map".to_owned(), true),
         (
@@ -635,6 +659,69 @@ fn view_fields(
         fields.push(("generator-commit", commit.to_owned(), true));
     }
     fields
+}
+
+/// What was set away from its default, in the prototype's names where it has
+/// one (`contour-step`, `index-every`, `bands`, `grid`, `grid-step`,
+/// `grid-lines`, `terrain`), so the record says how the map was made.
+fn non_default_settings(options: &SvgOptions) -> Vec<(&'static str, String, bool)> {
+    let default = SvgOptions::default();
+    let mut found = Vec::new();
+    let mut number = |name, value: f64, default: f64| {
+        if value != default {
+            found.push((name, fmt_g(value), false));
+        }
+    };
+    number("road-width", options.road_width, default.road_width);
+    number("rail-width", options.rail_width, default.rail_width);
+    number("min-width", options.min_width, default.min_width);
+    number("contour-step", options.contour_step, default.contour_step);
+    number(
+        "index-every",
+        f64::from(options.index_every),
+        f64::from(default.index_every),
+    );
+    number(
+        "grid-dot-step",
+        options.grid_dot_step,
+        default.grid_dot_step,
+    );
+    number("zoom", f64::from(options.zoom), f64::from(default.zoom));
+    if let Some(size) = options.rose_size {
+        found.push(("rose-size", fmt_g(size), false));
+    }
+    if options.raster {
+        found.push(("terrain", "raster".to_owned(), true));
+    }
+    if !options.bands {
+        found.push(("bands", "false".to_owned(), true));
+    }
+    match options.grid {
+        GridStep::Auto => {}
+        GridStep::Off => found.push(("grid", "off".to_owned(), true)),
+        GridStep::Every(n) => found.push(("grid-step", n.to_string(), false)),
+    }
+    if options.grid_lines != default.grid_lines {
+        let lines = match options.grid_lines {
+            GridLines::Auto => "auto",
+            GridLines::None => "none",
+            GridLines::Dots => "dots",
+            GridLines::Faint => "faint",
+        };
+        found.push(("grid-lines", lines.to_owned(), true));
+    }
+    if options.rose != default.rose {
+        let rose = match options.rose {
+            None => "off".to_owned(),
+            Some(Rose::LowerRight) => "lower-right".to_owned(),
+            Some(Rose::LowerLeft) => "lower-left".to_owned(),
+            Some(Rose::UpperLeft) => "upper-left".to_owned(),
+            Some(Rose::UpperRight) => "upper-right".to_owned(),
+            Some(Rose::At(x, y)) => format!("{},{}", fmt_g(x), fmt_g(y)),
+        };
+        found.push(("rose", rose, true));
+    }
+    found
 }
 
 fn write_lines(out: &mut impl Write, lines: &[String]) -> io::Result<()> {
@@ -700,7 +787,7 @@ fn write_network(
                 out,
                 "{}",
                 layer(
-                    &format!("{prefix}-{type_name}"),
+                    &format!("{prefix}-{}", safe_id(type_name)),
                     &format!("{label}: {type_name}"),
                     &format!(
                         " fill=\"none\" stroke=\"{colour}\" stroke-width=\"{common}\" \
@@ -916,6 +1003,12 @@ mod tests {
         };
         write_svg(&mut out, &header(), edges, &Layers::default(), &options).unwrap();
         String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn a_mod_road_type_makes_a_clean_layer_id() {
+        assert_eq!(safe_id("wide+road_4"), "wide_road_4");
+        assert_eq!(safe_id("town_old_small"), "town_old_small");
     }
 
     #[test]
