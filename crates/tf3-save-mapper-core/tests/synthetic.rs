@@ -1073,6 +1073,29 @@ fn a_png_without_terrain_is_paper_and_network() {
 }
 
 #[test]
+fn the_view_record_lists_what_was_set_away_from_the_default() {
+    let svg = render(&SvgOptions {
+        contour_step: 10.0,
+        bands: false,
+        grid: GridStep::Every(250),
+        zoom: 2,
+        rose: None,
+        settings: vec![("industries", "off".to_owned())],
+        ..SvgOptions::default()
+    });
+    assert!(
+        svg.contains(
+            "y-max=\"1024\" contour-step=\"10\" zoom=\"2\" bands=\"false\" grid-step=\"250\" \
+             rose=\"off\" industries=\"off\" generator=\"tf3map\""
+        ),
+        "{}",
+        svg.lines().find(|l| l.contains("<metadata>")).unwrap_or("")
+    );
+    let plain = render(&SvgOptions::default());
+    assert!(plain.contains("y-max=\"1024\" generator=\"tf3map\""));
+}
+
+#[test]
 fn the_view_record_names_the_build_when_given() {
     let svg = render(&SvgOptions {
         generator_commit: Some("0123456789-dirty"),

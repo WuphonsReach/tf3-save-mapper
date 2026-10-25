@@ -226,6 +226,24 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         (industries, depots, stations) = (false, false, false);
         (grid, no_grid) = (None, true);
         options.rose = None;
+    } else {
+        // What was switched away from the default, for the view record.
+        for (name, set, default) in [
+            ("terrain", terrain, true),
+            ("industries", industries, true),
+            ("depots", depots, true),
+            ("stations", stations, true),
+            ("coverage", coverage, false),
+            ("vehicles", vehicles, false),
+        ] {
+            if set != default {
+                let value = if set { "on" } else { "off" };
+                options.settings.push((name, value.to_owned()));
+            }
+        }
+        if mods.is_some() {
+            options.settings.push(("mods", "on".to_owned()));
+        }
     }
     if options.raster {
         if !terrain {
