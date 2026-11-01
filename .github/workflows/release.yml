@@ -1,12 +1,14 @@
 name: Release
 
-# Builds the `tf3map` binary for Windows, macOS and Linux, attaches build
-# provenance attestations and, for a version tag, publishes a GitHub release.
-# Verify a download with:
-#   gh attestation verify <file> --repo WuphonsReach/tf3-save-mapper
+# Runs the tests, builds the `tf3map` binary for Windows, macOS and Linux
+# and, for a version tag, attaches build provenance attestations and
+# publishes a GitHub release. Verify a download with:
+#   gh attestation verify <file> --repo WuphonsReach/tf3-save-mapper \
+#     --source-ref refs/tags/vX.Y.Z
 #
 # Run it by hand (Actions tab, "Run workflow") to get the archives as
-# workflow artifacts without publishing anything.
+# workflow artifacts without publishing anything. They are attested only
+# when the run is on a tag, so a build of a branch cannot pass the check.
 
 on:
   push:
@@ -46,9 +48,23 @@ jobs:
         env:
           REF_NAME: ${{ github.ref_name }}
 
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo test --workspace --locked
+
   build:
     name: build ${{ matrix.target }}
-    needs: version
+    needs: [version, test]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -104,7 +120,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
       - name: Attest build provenance
-        if: github.event_name != 'pull_request'
+        if: github.ref_type == 'tag'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: ${{ steps.package.outputs.file }}
@@ -137,7 +153,7 @@ jobs:
             --title "$REF_NAME" \
             "${prerelease[@]}" \
             --generate-notes \
-            --notes "Build provenance: \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`"
+            --notes "Build provenance: \`gh attestation verify <file> --repo $GITHUB_REPOSITORY --source-ref refs/tags/$REF_NAME\`"
         env:
           GH_TOKEN: ${{ github.token }}
           REF_NAME: ${{ github.ref_name }}
