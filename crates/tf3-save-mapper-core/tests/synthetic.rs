@@ -396,6 +396,18 @@ fn a_crop_keeps_the_map_frame_and_draws_only_what_shows() {
     // The terrain is cut from the crop's part of the grid only.
     assert!(svg.contains("id=\"terrain\" class=\"layer\" data-layer=\"terrain\" inkscape:groupmode=\"layer\" inkscape:label=\"Terrain\" transform=\"translate(1028 452)\""));
     assert!(svg.contains("<rect width=\"240\" height=\"244\""));
+    // All its ground is 50 m or more above the water: the land is the 40 to
+    // 60 m band's colour (the ramp at 50 m), and the bands start above it.
+    assert!(
+        svg.contains("<rect width=\"240\" height=\"244\" fill=\"#8ca969\"/>"),
+        "{svg}"
+    );
+    let heights: Vec<&str> = svg
+        .split("class=\"band\" data-height=\"")
+        .skip(1)
+        .map(|s| s.split('"').next().unwrap())
+        .collect();
+    assert!(!heights.is_empty() && heights.iter().all(|h| h.parse::<f64>().unwrap() >= 60.0));
     // The default grid on a crop: a third of 240 m, rounded down to 50 m.
     assert!(svg.contains("Grid 50 m"));
     assert!(svg.contains(">x -900</text>"));
