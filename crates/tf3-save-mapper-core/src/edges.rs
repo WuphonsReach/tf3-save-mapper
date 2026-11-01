@@ -20,6 +20,12 @@ const FIXED_BYTES: usize = 8 + 4 * 12;
 /// (441 the most seen).
 const TEMPLATE_WINDOW: usize = 800;
 const TEMPLATE_SUFFIX: &[u8] = b".street_template";
+/// Longest a mod name and a base type string read after the street type.
+const MOD_NAME_MAX: usize = 256;
+const BASE_TYPE_MAX: usize = 512;
+/// A record ends within this many bytes of its start: the street type's
+/// window and the two strings after it.
+const RECORD_MAX: usize = TEMPLATE_WINDOW + 4 + MOD_NAME_MAX + 4 + BASE_TYPE_MAX;
 /// TRAIN and ELECTRIC_TRAIN, by their place in the game's `TransportMode` list.
 const TRAIN_MODES: u32 = (1 << 7) | (1 << 8);
 /// Records less than this far apart belong to one table.
@@ -162,7 +168,7 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
         return None;
     }
     let (template, family, width) = match record_type(data, start) {
-        Some((template, family, width)) => (Some(template), family, width),
+        Some(t) => (Some(t.template), t.family, t.width),
         None => (None, Family::Street, None),
     };
     Some(Edge {
@@ -205,11 +211,23 @@ fn plausible(a: u32, b: u32, p0: [f32; 3], p1: [f32; 3], t0: [f32; 3], t1: [f32;
     [t0, t1].iter().all(|&t| tangent_length(t) < 5.0 * length)
 }
 
+/// What a record's strings and lanes give.
+struct RecordType {
+    template: String,
+    family: Family,
+    width: Option<f32>,
+    /// Offset just after the base type: where the next record starts.
+    end: usize,
+    /// Whether the lanes read, which ties the record to its start: the bytes
+    /// from the tangents on must lead exactly to the street type.
+    lanes: bool,
+}
+
 /// The template, family and width of the record starting at `start`. The street
 /// type is the record's first `.street_template` string after the tangents,
 /// and a mod name and the base type (ending in `.street`) must follow it.
 /// No later string is tried: that would be the next record's.
-fn record_type(data: &[u8], start: usize) -> Option<(String, Family, Option<f32>)> {
+fn record_type(data: &[u8], start: usize) -> Option<RecordType> {
     let window = data.get(start + FIXED_BYTES..data.len().min(start + TEMPLATE_WINDOW))?;
     let suffix_at = start + FIXED_BYTES + memmem::find(window, TEMPLATE_SUFFIX)?;
     let end = suffix_at + TEMPLATE_SUFFIX.len();
@@ -223,12 +241,12 @@ fn record_type(data: &[u8], start: usize) -> Option<(String, Family, Option<f32>
         return None;
     }
     let mod_len = u32_at(data, end)? as usize;
-    if mod_len > 256 {
+    if mod_len > MOD_NAME_MAX {
         return None;
     }
     let base_at = end + 4 + mod_len;
     let base_len = u32_at(data, base_at)? as usize;
-    if base_len > 512
+    if base_len > BASE_TYPE_MAX
         || !data
             .get(base_at + 4..base_at + 4 + base_len)?
             .ends_with(b".street")
@@ -247,7 +265,13 @@ fn record_type(data: &[u8], start: usize) -> Option<(String, Family, Option<f32>
         None if path.starts_with("infrastructure/track/") => Family::Track,
         None => Family::Street,
     };
-    Some((template, family, lanes.and_then(|l| l.width)))
+    Some(RecordType {
+        template,
+        family,
+        width: lanes.and_then(|l| l.width),
+        end: base_at + 4 + base_len,
+        lanes: lanes.is_some(),
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -317,24 +341,42 @@ fn largest_cluster(edges: Vec<Edge>) -> Vec<Edge> {
 /// The table's first record. Every other record starts right after the
 /// previous record's last `.street`, which is what `read_edges` matches on;
 /// the first one follows other bytes (a run of small counters), so it is
-/// found from the second: a record that reads as one and starts 250 to 400
-/// bytes earlier. Bytes at the wrong alignment can also pass the plausibility
-/// checks, so candidates are told apart by their tangents: each is within 20 %
-/// of the edge's own length. `None` if there is no candidate or more than one.
+/// found from the second: a record that reads as one and whose base type
+/// ends exactly where the second record starts, at most `RECORD_MAX` bytes
+/// earlier. Bytes a few places off can read as a record ending there too, so
+/// a candidate whose lanes read (which ties it to its start) wins; without
+/// one, candidates are told apart by their tangents: each is within 20 % of
+/// the edge's own length. `None` if there is no candidate or more than one.
 fn record_before(data: &[u8], offset: usize) -> Option<Edge> {
     if offset < 7 || &data[offset - 7..offset] != b".street" {
         return None;
     }
-    let mut found = (offset.saturating_sub(400)..offset.saturating_sub(250))
-        .filter_map(|start| parse_record(data, start))
-        .filter(|e| {
-            e.template.is_some()
-                && [e.t0, e.t1]
+    let candidates: Vec<(Edge, bool)> = (offset.saturating_sub(RECORD_MAX)
+        ..offset.saturating_sub(FIXED_BYTES))
+        .filter_map(|start| {
+            let e = parse_record(data, start)?;
+            let t = record_type(data, start).filter(|t| t.end == offset)?;
+            Some((e, t.lanes))
+        })
+        .collect();
+    let tied: Vec<&Edge> = candidates.iter().filter(|c| c.1).map(|c| &c.0).collect();
+    let pick: Vec<&Edge> = if tied.is_empty() {
+        candidates
+            .iter()
+            .map(|c| &c.0)
+            .filter(|e| {
+                [e.t0, e.t1]
                     .iter()
                     .all(|t| (tangent_length(*t) - e.length()).abs() < 0.2 * e.length())
-        });
-    let first = found.next()?;
-    found.next().is_none().then_some(first)
+            })
+            .collect()
+    } else {
+        tied
+    };
+    match pick[..] {
+        [e] => Some(e.clone()),
+        _ => None,
+    }
 }
 
 /// Words near the end of the stream are searched for the free-id list, within this many bytes.

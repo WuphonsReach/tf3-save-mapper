@@ -19,6 +19,9 @@ const RECORD_BYTES: usize = 4 + 64;
 const ONE: [u8; 4] = [0x00, 0x00, 0x80, 0x3f];
 /// The table is searched for this far before its first `animal/` path.
 const TABLE_REACH: usize = 2000;
+/// At most this many `animal/` paths are tried: the header holds a few at
+/// most, and an old save with no table can hold many in its instances.
+const TABLE_TRIES: usize = 64;
 /// Fewest records in a run that counts as a page of the editor's preview block.
 const BLOCK_RUN: usize = 6;
 
@@ -65,12 +68,14 @@ fn u32_at(data: &[u8], at: usize) -> Option<u32> {
     ))
 }
 
-/// Read the model table. It is found from the first `animal/` path, which the
-/// base game's table sorts first.
+/// Read the model table. It is found from its first `animal/` path, which the
+/// base game's table sorts first. The header before it can hold the same
+/// text (a mod's name or setting), so each `animal/` is tried in turn until a
+/// table reads before one.
 pub fn read_model_table(data: &[u8]) -> Result<ModelTable> {
-    let first = memmem::find(data, b"animal/").ok_or(Error::NoModelTable)?;
-    (first.saturating_sub(TABLE_REACH)..first)
-        .find_map(|start| table_at(data, start))
+    memmem::find_iter(data, b"animal/")
+        .take(TABLE_TRIES)
+        .find_map(|at| (at.saturating_sub(TABLE_REACH)..at).find_map(|start| table_at(data, start)))
         .ok_or(Error::NoModelTable)
 }
 
