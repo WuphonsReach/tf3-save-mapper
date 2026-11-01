@@ -50,6 +50,11 @@ const PAPER: [u8; 3] = [255, 255, 255];
 const CURVE_TOLERANCE: f64 = 0.25;
 /// The outline of a station, depot or industry footprint, metres.
 const OUTLINE: f64 = 1.5;
+/// Metres round a crop from which the drawing is worked out: everything
+/// whose origin lies within it, so a station's border and a landing's anchor
+/// come out as on the whole map unless the station reaches further. What is
+/// written is then cut to the view by each part's drawn shape (`Cut`).
+const GATHER: f64 = 500.0;
 
 #[derive(Debug, Clone)]
 pub struct SvgOptions {
@@ -293,17 +298,58 @@ impl View {
     }
 
     /// Whether the edge may show: the box of its curve's control points,
-    /// which holds the curve, meets the view.
-    fn touches(&self, e: &Edge) -> bool {
+    /// which holds the curve, widened by `pad` metres, meets the view.
+    fn touches(&self, e: &Edge, pad: f64) -> bool {
         let c = e.bezier();
         let (xs, ys) = (c.map(|p| p.0), c.map(|p| p.1));
         let max = |v: [f64; 4]| v.into_iter().fold(f64::MIN, f64::max);
         let min = |v: [f64; 4]| v.into_iter().fold(f64::MAX, f64::min);
-        max(xs) >= self.x_min
-            && min(xs) <= self.x_max
-            && max(ys) >= self.y_min
-            && min(ys) <= self.y_max
+        max(xs) + pad >= self.x_min
+            && min(xs) - pad <= self.x_max
+            && max(ys) + pad >= self.y_min
+            && min(ys) - pad <= self.y_max
     }
+}
+
+/// What of the drawing is written: on a crop, the parts whose drawn shape
+/// meets the view (its rectangle in picture metres, `(u0, u1, v0, v1)`); on
+/// the whole map, everything.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Cut(Option<(f64, f64, f64, f64)>);
+
+impl Cut {
+    fn new(view: &View, crop: bool) -> Cut {
+        Cut(crop.then_some((
+            view.u0,
+            view.u0 + view.width,
+            view.v0,
+            view.v0 + view.height,
+        )))
+    }
+
+    /// Whether a shape with these points (picture metres), widened by `pad`
+    /// metres each way, meets the view.
+    fn meets(&self, pts: &[(f64, f64)], pad: f64) -> bool {
+        let Some((u0, u1, v0, v1)) = self.0 else {
+            return true;
+        };
+        let (a0, a1, b0, b1) = crate::geometry::bounds(pts);
+        a1 + pad >= u0 && a0 - pad <= u1 && b1 + pad >= v0 && b0 - pad <= v1
+    }
+}
+
+/// The edges a crop's `view` shows, each by its drawn width and `pad` metres
+/// more; on the whole map all of them, since a runway can reach past its edge.
+fn cut_edges<'a>(
+    edges: &'a [Edge],
+    view: Option<&View>,
+    options: &SvgOptions,
+    pad: f64,
+) -> Vec<&'a Edge> {
+    edges
+        .iter()
+        .filter(|e| view.is_none_or(|v| v.touches(e, edge_width(e, options) / 2.0 + pad)))
+        .collect()
 }
 
 /// The opening tag of a layer: a group Inkscape shows as one (its
@@ -320,17 +366,14 @@ fn layer(id: &str, label: &str, attrs: &str) -> String {
     )
 }
 
-/// The edges that are drawn: all of them, or on a crop those that may show
-/// in it. Empty for a crop off the map.
+/// The edges that are drawn: all of them, or on a crop those that show in
+/// it. Empty for a crop off the map.
 pub fn shown_edges<'a>(header: &Header, edges: &'a [Edge], options: &SvgOptions) -> Vec<&'a Edge> {
     let picture = Picture::new(header, options.north);
     match options.crop {
         None => edges.iter().collect(),
         Some(c) => match c.bounds(header) {
-            Some(b) => {
-                let view = View::new(&picture, b);
-                edges.iter().filter(|e| view.touches(e)).collect()
-            }
+            Some(b) => cut_edges(edges, Some(&View::new(&picture, b)), options, 0.0),
             None => Vec::new(),
         },
     }
@@ -354,41 +397,33 @@ pub fn write_svg(
     };
     let view = crop.map_or_else(|| View::whole(&picture, header), |b| View::new(&picture, b));
     let (w, h) = (view.width, view.height);
-    // On a crop, only what may show in it.
-    let shows = |i: &Instance, reach: f64| crop.is_none() || view.reaches(i.x, i.y, reach);
-    let edges: Vec<&Edge> = edges
-        .iter()
-        .filter(|e| crop.is_none() || view.touches(e))
-        .collect();
+    // On a crop, what lies within `GATHER` of it (a coverage circle within
+    // its radius); each layer draws from that and writes what shows (`cut`).
+    let cut = Cut::new(&view, crop.is_some());
+    let near = |i: &Instance, reach: f64| crop.is_none() || view.reaches(i.x, i.y, reach);
+    let gather = |rows: &[Instance]| -> Vec<Instance> {
+        rows.iter().filter(|i| near(i, GATHER)).cloned().collect()
+    };
+    let edges = cut_edges(edges, crop.is_some().then_some(&view), options, 0.0);
     let edge_ids = &layers.edge_ids;
-    let station_rows: Vec<Instance> = layers
-        .stations
-        .iter()
-        .filter(|i| shows(i, stations::reach(&i.model, &layers.station_boxes)))
-        .cloned()
-        .collect();
-    let depot_rows: Vec<Instance> = layers
-        .depots
-        .iter()
-        .filter(|i| shows(i, depots::REACH))
-        .cloned()
-        .collect();
+    let station_rows = gather(&layers.stations);
+    let depot_rows = gather(&layers.depots);
     let coverage_rows: Vec<Instance> = layers
         .coverage
         .iter()
-        .filter(|i| shows(i, coverage::reach(&i.model, &layers.depot_specs)))
+        .filter(|i| {
+            near(
+                i,
+                GATHER.max(coverage::reach(&i.model, &layers.depot_specs)),
+            )
+        })
         .cloned()
         .collect();
-    let vehicle_rows: Vec<Instance> = layers
-        .vehicles
-        .iter()
-        .filter(|i| shows(i, 0.0))
-        .cloned()
-        .collect();
+    let vehicle_rows = gather(&layers.vehicles);
     let industry_rows: Vec<(Instance, String)> = layers
         .industries
         .iter()
-        .filter(|(i, key)| shows(i, industries::reach(key, &layers.industry_faces)))
+        .filter(|(i, _)| near(i, GATHER))
         .cloned()
         .collect();
 
@@ -462,20 +497,21 @@ pub fn write_svg(
             &coverage_rows,
             &layers.depot_specs,
             options.metres_per_pixel,
+            cut,
         ),
     )?;
     let (stations_under, stations_over) =
-        stations::layers(&picture, &station_rows, &layers.station_boxes);
+        stations::layers(&picture, &station_rows, &layers.station_boxes, cut);
     write_lines(out, &stations_under)?;
     write_network(out, &picture, &edges, edge_ids, options)?;
     write_lines(
         out,
-        &depots::layers(&picture, &depot_rows, &layers.depot_specs),
+        &depots::layers(&picture, &depot_rows, &layers.depot_specs, cut),
     )?;
     write_lines(out, &stations_over)?;
     write_lines(
         out,
-        &industries::layers(&picture, &industry_rows, &layers.industry_faces),
+        &industries::layers(&picture, &industry_rows, &layers.industry_faces, cut),
     )?;
     write_lines(
         out,
@@ -484,6 +520,7 @@ pub fn write_svg(
             &vehicle_rows,
             &layers.vehicle_names,
             options.metres_per_pixel,
+            cut,
         ),
     )?;
     write_lines(
@@ -494,6 +531,7 @@ pub fn write_svg(
             &layers.labels,
             edge_ids,
             options.metres_per_pixel,
+            cut,
         ),
     )?;
     write_lines(out, &grid_labels)?;
@@ -542,16 +580,18 @@ pub fn write_png(
         }
     };
     let size = (img.width, img.height);
-    // On a crop, the edges that may show in the picture; on the whole map all,
-    // since a runway can reach past the map's edge.
+    // On a crop, the edges that show in the picture, each brush at least a
+    // pixel wide; on the whole map all.
     let view = View::new(
         &Picture::new(header, options.north),
         corner.bounds(size, sampling.spacing),
     );
-    let edges: Vec<&Edge> = edges
-        .iter()
-        .filter(|e| crop.is_none() || view.touches(e))
-        .collect();
+    let edges = cut_edges(
+        edges,
+        crop.is_some().then_some(&view),
+        options,
+        sampling.spacing,
+    );
     raster::draw_network(&mut img, &corner, sampling.spacing, &edges, |e| {
         edge_width(e, options)
     });
@@ -1072,6 +1112,37 @@ mod tests {
             svg.find("id=\"roads\"") < svg.find("id=\"rails\""),
             "rails draw last"
         );
+    }
+
+    #[test]
+    fn a_crop_holds_the_edges_whose_width_reaches_into_it() {
+        // The crop's box is y -100 to 100; a 16 m road 4 m past it reaches
+        // in, one 12 m past it does not.
+        let edges = [
+            edge(
+                "street/town_new_medium.lua",
+                [-50.0, 104.0, 0.0],
+                [50.0, 104.0, 0.0],
+                Some(16.0),
+            ),
+            edge(
+                "street/town_new_medium.lua",
+                [-50.0, 112.0, 0.0],
+                [50.0, 112.0, 0.0],
+                Some(16.0),
+            ),
+        ];
+        let options = SvgOptions {
+            crop: Some(Crop {
+                x: 0.0,
+                y: 0.0,
+                radius: 100.0,
+            }),
+            ..SvgOptions::default()
+        };
+        let shown = shown_edges(&header(), &edges, &options);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].p0[1], 104.0);
     }
 
     #[test]

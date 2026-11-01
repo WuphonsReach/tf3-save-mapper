@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use super::depots::data_attrs;
-use super::{Picture, fmt_g, fmt2, layer};
+use super::{Cut, Picture, fmt_g, fmt2, layer};
 use crate::install::{DEPOT_KINDS, DepotSpec};
 use crate::instances::Instance;
 
@@ -42,6 +42,7 @@ pub(super) fn layers(
     instances: &[Instance],
     specs: &HashMap<&'static str, DepotSpec>,
     metres_per_pixel: f64,
+    cut: Cut,
 ) -> Vec<String> {
     let line = fmt_g(LINE_PX * metres_per_pixel);
     let (dash, gap) = (
@@ -56,7 +57,11 @@ pub(super) fn layers(
         let Some(radius) = spec.radius else {
             continue;
         };
-        let rows: Vec<&Instance> = instances.iter().filter(|i| i.model == kind.model).collect();
+        let r = f64::from(radius) + LINE_PX * metres_per_pixel / 2.0;
+        let rows: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| i.model == kind.model && cut.meets(&[picture.pic((i.x, i.y))], r))
+            .collect();
         if rows.is_empty() {
             continue;
         }
@@ -145,7 +150,7 @@ mod tests {
                 0.0,
             ),
         ];
-        let text = layers(&picture, &rows, &specs, 8.0).join("\n");
+        let text = layers(&picture, &rows, &specs, 8.0, Cut(None)).join("\n");
         assert!(text.starts_with("<g id=\"coverage\""), "{text}");
         assert!(text.contains("id=\"coverage-maintenance-buildings\""));
         assert!(
@@ -167,6 +172,6 @@ mod tests {
         assert_eq!(reach(depot, &specs), 0.0);
 
         // Nothing to draw: no layer at all.
-        assert!(layers(&picture, &rows[1..], &specs, 8.0).is_empty());
+        assert!(layers(&picture, &rows[1..], &specs, 8.0, Cut(None)).is_empty());
     }
 }

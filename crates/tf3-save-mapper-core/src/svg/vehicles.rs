@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use super::{Picture, escape, fmt_g, fmt1, layer, safe_id};
+use super::{Cut, Picture, escape, fmt_g, fmt1, layer, safe_id};
 use crate::instances::Instance;
 
 /// (model path prefix, (length, width) in metres).
@@ -83,7 +83,16 @@ pub(super) fn layers(
     rows: &[Instance],
     names: &HashMap<usize, String>,
     mpp: f64,
+    cut: Cut,
 ) -> Vec<String> {
+    // A vehicle shows when its body does; its name goes with it.
+    let rows: Vec<&Instance> = rows
+        .iter()
+        .filter(|i| {
+            let (length, width) = by_prefix(SIZE, &i.model, OTHER_SIZE);
+            cut.meets(&[picture.pic((i.x, i.y))], length.hypot(width) / 2.0 + 0.25)
+        })
+        .collect();
     if rows.is_empty() {
         return Vec::new();
     }
@@ -210,7 +219,7 @@ mod tests {
             vehicle(9, "vehicle/waggon/box.mdl", (1.0, 0.0)),
         ];
         let names = HashMap::from([(4, "Road Vehicle 12".to_owned())]);
-        let text = layers(&picture, &rows, &names, 4.0).join("\n");
+        let text = layers(&picture, &rows, &names, 4.0, Cut(None)).join("\n");
         // Facing north: up the picture, -90 degrees.
         assert!(
             text.contains("transform=\"translate(510.0 480.0) rotate(-90.0)\" points=\"-5,-1.3 2.66,-1.3 5,0 2.66,1.3 -5,1.3\" fill=\"#1f7a3a\" stroke=\"#fff\""),

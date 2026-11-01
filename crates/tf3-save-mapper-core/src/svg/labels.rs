@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use super::{Picture, bezier_point, escape, fmt_g, fmt1, layer};
+use super::{Cut, Picture, bezier_point, escape, fmt_g, fmt1, layer};
 use crate::edges::Edge;
 
 /// Halo and dot colours, given to the labelled edges in turn.
@@ -50,6 +50,7 @@ pub(super) fn layers(
     labels: &[EdgeLabel],
     ids: &HashMap<usize, u32>,
     mpp: f64,
+    cut: Cut,
 ) -> Vec<String> {
     if labels.is_empty() {
         return Vec::new();
@@ -134,6 +135,9 @@ pub(super) fn layers(
     out.push(layer("nodes", "Edge end nodes", ""));
     for ((x, y), parts) in &ends {
         let (cx, cy) = picture.pic((*x, *y));
+        if !cut.meets(&[(cx, cy)], r) {
+            continue;
+        }
         let names: Vec<&str> = parts.iter().map(|p| p.2.as_str()).collect();
         out.push(format!(
             "<g class=\"node\" data-x=\"{}\" data-y=\"{}\" data-edges=\"{}\">",
@@ -225,7 +229,7 @@ mod tests {
         ];
         let ids = HashMap::from([(7, 0x7de1)]);
         let edges = [&west, &north, &other];
-        let text = layers(&picture, &edges, &labels, &ids, 1.0).join("\n");
+        let text = layers(&picture, &edges, &labels, &ids, 1.0, Cut(None)).join("\n");
         assert!(
             text.contains("translate(550.0 500.0) rotate(0.0)\" y=\"6.16\""),
             "{text}"
