@@ -142,6 +142,42 @@ fn finds_every_record_including_the_first_and_skips_the_decoy() {
 }
 
 #[test]
+fn the_first_record_is_found_whatever_its_length() {
+    // A two-lane track (242 bytes) and a street with 20 objects on it (444
+    // bytes) as the table's first record.
+    for first in [
+        EdgeSpec {
+            template: "track/standard",
+            lanes: TRACK_LANES,
+            ..edges().remove(0)
+        },
+        EdgeSpec {
+            objects: 20,
+            ..edges().remove(0)
+        },
+    ] {
+        let len = common::edge_record(&first).len();
+        let mut specs = edges();
+        specs[0] = first;
+        let found = read_edges(&common::stream(&specs)).unwrap();
+        assert_eq!(found.len(), 6, "a first record of {len} bytes");
+        assert_eq!((found[0].a, found[0].b), (100, 101));
+        assert_eq!(found[0].p0, [-1000.0, 500.0, 37.5]);
+    }
+}
+
+#[test]
+fn a_model_path_in_the_header_does_not_hide_the_table() {
+    // A mod named like a model path, before the table.
+    let mut stream = common::stream(&edges());
+    let at = stream.windows(10).position(|w| w == b"a mod name").unwrap();
+    stream[at..at + 10].copy_from_slice(b"animal/pak");
+    let table = read_model_table(&stream).unwrap();
+    assert_eq!(table.paths[&0], "animal/beast_0.mdl");
+    assert_eq!(table.paths[&900], "assets/some_mod/barn.mdl");
+}
+
+#[test]
 fn terrain_reads_tile_by_tile() {
     let stream = common::stream(&edges());
     let t = read_terrain(&stream).unwrap();
