@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use super::{OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr, runs_d};
+use super::{Cut, OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr, runs_d};
 use crate::geometry::{clear_of_edge, closed_outline, outer_runs};
 use crate::install::{Rect, STATION_KINDS, StationKind, is_street_border};
 use crate::instances::Instance;
@@ -45,13 +45,6 @@ fn landing_size(model: &str) -> Option<&'static str> {
     }
 }
 
-/// Metres from a piece's origin within which it may show: its box's far
-/// corner, or a landing's 1 m stand-in box.
-pub(super) fn reach(model: &str, boxes: &HashMap<String, Rect>) -> f64 {
-    let (x0, y0, x1, y1) = boxes.get(model).copied().unwrap_or((-1.0, -1.0, 1.0, 1.0));
-    x0.abs().max(x1.abs()).hypot(y0.abs().max(y1.abs()))
-}
-
 /// Whether an instance is drawn on the station layers.
 pub fn is_station_piece(model: &str, boxes: &HashMap<String, Rect>) -> bool {
     boxes.contains_key(model) || landing_size(model).is_some()
@@ -76,21 +69,32 @@ fn placed_box(picture: &Picture, i: &Instance, b: Rect) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// A kind's sublayer: its pieces, and its outer edge with no line where two
-/// boxes touch. Where the border stands for the modular stations, only the
-/// small stops get their own outline.
+/// A kind's outer edge, with no line where two boxes touch. Where the border
+/// stands for the modular stations, only the small stops get their own.
+fn outer_edge(rows: &[(&Instance, Vec<(f64, f64)>)], border: bool) -> Vec<Vec<(f64, f64)>> {
+    let polys: Vec<Vec<(f64, f64)>> = rows
+        .iter()
+        .filter(|(i, _)| !border || i.model.contains("/small_stops/"))
+        .map(|(_, c)| c.clone())
+        .collect();
+    outer_runs(&polys)
+}
+
+/// A kind's sublayer: the pieces that show, and the runs of its outer edge
+/// (`outer_edge`, of all its pieces) that show.
 fn pieces_sublayer(
     lines: &mut Vec<String>,
     kind: &StationKind,
-    rows: &[(&Instance, Vec<(f64, f64)>)],
-    border_here: bool,
-) -> Vec<Vec<(f64, f64)>> {
+    rows: &[&(&Instance, Vec<(f64, f64)>)],
+    outer: &[Vec<(f64, f64)>],
+    cut: Cut,
+) {
     lines.push(layer(kind.id, kind.label, ""));
     // Opaque pieces in a group that is partly transparent as a whole, so
     // overlapping boxes do not darken; a same-colour edge hides the seam
     // between two boxes.
     lines.push(format!("<g opacity=\"{}\">", kind.opacity));
-    for (i, c) in rows {
+    for (i, c) in rows.iter().copied() {
         lines.push(format!(
             "<g class=\"station-piece\" data-slot=\"{}\" data-model=\"{}\" data-x=\"{}\" data-y=\"{}\">\
              <polygon points=\"{}\" fill=\"{}\" stroke=\"{}\" stroke-width=\"0.5\"/></g>",
@@ -104,17 +108,11 @@ fn pieces_sublayer(
         ));
     }
     lines.push("</g>".into());
-    let polys: Vec<Vec<(f64, f64)>> = rows.iter().map(|(_, c)| c.clone()).collect();
-    let outer = if border_here {
-        let stops: Vec<Vec<(f64, f64)>> = rows
-            .iter()
-            .filter(|(i, _)| i.model.contains("/small_stops/"))
-            .map(|(_, c)| c.clone())
-            .collect();
-        outer_runs(&stops)
-    } else {
-        outer_runs(&polys)
-    };
+    let outer: Vec<Vec<(f64, f64)>> = outer
+        .iter()
+        .filter(|r| cut.meets(r, OUTLINE / 2.0))
+        .cloned()
+        .collect();
     if !outer.is_empty() {
         lines.push(format!(
             "<path class=\"station-outer\" d=\"{}\" fill=\"none\" stroke=\"#000\" stroke-width=\"{OUTLINE}\" \
@@ -123,14 +121,16 @@ fn pieces_sublayer(
         ));
     }
     lines.push("</g>".into());
-    outer
 }
 
 /// The lines of the `stations` layer and of the `stations-street` layer.
+/// Borders, outer edges and anchors are worked out from all of `instances`;
+/// what is written is what `cut` keeps.
 pub(super) fn layers(
     picture: &Picture,
     instances: &[Instance],
     boxes: &HashMap<String, Rect>,
+    cut: Cut,
 ) -> (Vec<String>, Vec<String>) {
     let mut under: Vec<String> = Vec::new();
     let mut over: Vec<String> = Vec::new();
@@ -148,6 +148,11 @@ pub(super) fn layers(
     } else {
         closed_outline(&border_polys, STREET_BORDER_CLOSE)
     };
+    let shown_loops: Vec<Vec<(f64, f64)>> = border_loops
+        .iter()
+        .filter(|l| cut.meets(l, OUTLINE / 2.0))
+        .cloned()
+        .collect();
     // The decks' boxes and outline, which the landings' anchors keep clear of.
     let (mut deck_boxes, mut deck_outline) = (Vec::new(), Vec::new());
 
@@ -170,8 +175,17 @@ pub(super) fn layers(
         // The street stations' ground and border are drawn with the
         // platforms, even when none of the platforms is one of the kind's.
         let platforms = kind.id == "station-street-platforms";
-        let border_here = platforms && !border_loops.is_empty();
-        if rows.is_empty() && !border_here {
+        let outer = outer_edge(&rows, platforms && !border_loops.is_empty());
+        if kind.id == "station-water-decks" {
+            deck_boxes = rows.iter().map(|(_, c)| c.clone()).collect();
+            deck_outline = outer.clone();
+        }
+        let shown: Vec<&(&Instance, Vec<(f64, f64)>)> = rows
+            .iter()
+            .filter(|(_, c)| cut.meets(c, OUTLINE / 2.0))
+            .collect();
+        let border_here = platforms && !shown_loops.is_empty();
+        if shown.is_empty() && !border_here {
             continue;
         }
         let street = kind.id.starts_with("station-street");
@@ -196,14 +210,12 @@ pub(super) fn layers(
             lines.push(format!(
                 "<path class=\"station-ground\" d=\"{}\" fill=\"{STREET_BORDER_FILL}\" fill-rule=\"evenodd\" \
                  stroke=\"{STREET_BORDER_FILL}\" stroke-width=\"0.5\"/></g>",
-                loops_d(&border_loops)
+                loops_d(&shown_loops)
             ));
         }
-        let outer = if rows.is_empty() {
-            Vec::new()
-        } else {
-            pieces_sublayer(lines, kind, &rows, border_here)
-        };
+        if !shown.is_empty() {
+            pieces_sublayer(lines, kind, &shown, &outer, cut);
+        }
         if border_here {
             lines.push(layer(
                 "station-street-borders",
@@ -213,34 +225,17 @@ pub(super) fn layers(
             lines.push(format!(
                 "<path class=\"station-outer\" d=\"{}\" fill=\"none\" stroke=\"#000\" stroke-width=\"{OUTLINE}\" \
                  stroke-linecap=\"round\" stroke-linejoin=\"round\"/></g>",
-                loops_d(&border_loops)
+                loops_d(&shown_loops)
             ));
-        }
-        if kind.id == "station-water-decks" {
-            deck_boxes = rows.into_iter().map(|(_, c)| c).collect();
-            deck_outline = outer;
         }
     }
 
-    let landings: Vec<(&Instance, &str)> = instances
+    // Each landing's anchor, placed against all the decks: (the instance, its
+    // size, its centre, its turn), those that show.
+    let landings: Vec<(&Instance, &str, (f64, f64), String)> = instances
         .iter()
         .filter_map(|i| Some((i, landing_size(&i.model)?)))
-        .collect();
-    if !landings.is_empty() {
-        if under.is_empty() {
-            under.push(layer("stations", "Stations", " pointer-events=\"none\""));
-        }
-        under.push("<defs>".into());
-        for (size, file) in [("large", ANCHOR_LARGE), ("small", ANCHOR_SMALL)] {
-            if landings.iter().any(|(_, s)| *s == size)
-                && let Some(s) = super::industries::symbol(&format!("station-anchor-{size}"), file)
-            {
-                under.push(s);
-            }
-        }
-        under.push("</defs>".into());
-        under.push(layer("station-landings", "Water stations: landings", ""));
-        for (i, size) in landings {
+        .filter_map(|(i, size)| {
             let (d, clearance, tilt) = landing_style(size);
             let ((cx, cy), edge) = clear_of_edge(
                 picture.pic((i.x, i.y)),
@@ -249,6 +244,10 @@ pub(super) fn layers(
                 &deck_outline,
                 LANDING_REACH,
             );
+            // Turned any way, the icon stays within half its diagonal of its centre.
+            if !cut.meets(&[(cx, cy)], d * std::f64::consts::FRAC_1_SQRT_2) {
+                return None;
+            }
             // The ring at the top of an anchor points at its deck.
             let turn = edge.map_or(String::new(), |(ex, ey)| {
                 let angle = (ex - cx).atan2(cy - ey).to_degrees() - tilt;
@@ -259,6 +258,25 @@ pub(super) fn layers(
                     fmt2(cy)
                 )
             });
+            Some((i, size, (cx, cy), turn))
+        })
+        .collect();
+    if !landings.is_empty() {
+        if under.is_empty() {
+            under.push(layer("stations", "Stations", " pointer-events=\"none\""));
+        }
+        under.push("<defs>".into());
+        for (size, file) in [("large", ANCHOR_LARGE), ("small", ANCHOR_SMALL)] {
+            if landings.iter().any(|l| l.1 == size)
+                && let Some(s) = super::industries::symbol(&format!("station-anchor-{size}"), file)
+            {
+                under.push(s);
+            }
+        }
+        under.push("</defs>".into());
+        under.push(layer("station-landings", "Water stations: landings", ""));
+        for (i, size, (cx, cy), turn) in landings {
+            let (d, _, _) = landing_style(size);
             under.push(format!(
                 "<use class=\"station-landing\" data-slot=\"{}\" data-model=\"{}\" data-size=\"{size}\" data-x=\"{}\" \
                  data-y=\"{}\" xlink:href=\"#station-anchor-{size}\" x=\"{}\" y=\"{}\" width=\"{d}\" height=\"{d}\" \
@@ -319,7 +337,7 @@ mod tests {
             piece("stations/rail/era_a/perron_5.mdl", 20.0, 0.0),
             piece("stations/street/small_stops/small_old.mdl", 100.0, 100.0),
         ];
-        let (under, over) = layers(&picture, &rows, &boxes);
+        let (under, over) = layers(&picture, &rows, &boxes, Cut(None));
         let (under, over) = (under.join("\n"), over.join("\n"));
         assert!(under.contains("id=\"station-rail-platforms\""));
         assert!(over.contains("id=\"station-street-platforms\""));
@@ -345,7 +363,7 @@ mod tests {
             (0.0, -5.0, 40.0, 5.0),
         )]);
         let rows = [piece("stations/rail/era_b/perron_10.mdl", 0.0, 0.0)];
-        let (under, _) = layers(&picture, &rows, &boxes);
+        let (under, _) = layers(&picture, &rows, &boxes, Cut(None));
         let under = under.join("\n");
         assert!(under.contains("id=\"station-rail-platforms\""), "{under}");
         assert!(under.contains("data-model=\"stations/rail/era_b/perron_10.mdl\""));
@@ -361,7 +379,7 @@ mod tests {
         let centre = "stations/street/modular_street_station/models/era_b/cntr_a.mdl";
         let boxes = HashMap::from([(centre.to_owned(), (-5.0, -5.0, 5.0, 5.0))]);
         let rows = [piece(centre, 0.0, 0.0)];
-        let (under, over) = layers(&picture, &rows, &boxes);
+        let (under, over) = layers(&picture, &rows, &boxes, Cut(None));
         assert!(under.is_empty());
         let over = over.join("\n");
         assert!(over.contains("station-street-borders"), "{over}");
@@ -392,11 +410,69 @@ mod tests {
                 5.0,
             ),
         ];
-        let (under, _) = layers(&picture, &rows, &boxes);
+        let (under, _) = layers(&picture, &rows, &boxes, Cut(None));
         let text = under.join("\n");
         assert!(text.contains("<symbol id=\"station-anchor-large\""));
         // Moved north off the deck edge at y = 6 (picture v = 494) by 12.75 m; its ring points south.
         assert!(text.contains("x=\"488.00\" y=\"469.25\""), "{text}");
         assert!(text.contains("rotate(180.0 500.00 481.25)"), "{text}");
+    }
+
+    #[test]
+    fn a_crop_draws_the_border_and_anchors_from_pieces_outside_it() {
+        let picture = Picture {
+            width: 1000.0,
+            height: 1000.0,
+            north: crate::svg::North::Game,
+        };
+        let centre = "stations/street/modular_street_station/models/era_b/cntr_a.mdl";
+        let dock = "stations/water/models/dock_50_12.mdl";
+        let boxes = HashMap::from([
+            (centre.to_owned(), (-5.0, -5.0, 5.0, 5.0)),
+            (dock.to_owned(), (-25.0, -6.0, 25.0, 6.0)),
+        ]);
+        // Two centre pieces 4 m apart, whose border closes the gap, at
+        // picture u 515 to 525 and 529 to 539 (v 395 to 405); a deck under a
+        // landing.
+        let rows = [
+            piece(centre, 20.0, 100.0),
+            piece(centre, 34.0, 100.0),
+            piece(dock, 0.0, 0.0),
+            piece(
+                "stations/water/models/tn_medium_pier_passenger.mdl",
+                0.0,
+                5.0,
+            ),
+        ];
+        let whole = layers(&picture, &rows, &boxes, Cut(None));
+        // A view that holds the first piece and the anchor, and ends left of
+        // the second piece and above the deck.
+        let cut = Cut(Some((480.0, 527.0, 0.0, 490.0)));
+        let (under, over) = layers(&picture, &rows, &boxes, cut);
+        let border = |lines: &[String]| {
+            lines
+                .iter()
+                .find(|l| l.contains("class=\"station-outer\""))
+                .cloned()
+        };
+        assert!(border(&over).is_some());
+        assert_eq!(
+            border(&over),
+            border(&whole.1),
+            "one loop round both pieces"
+        );
+        // The deck is not written, but the anchor stays where the deck puts it.
+        let under = under.join("\n");
+        assert!(!under.contains(dock), "{under}");
+        assert!(under.contains("x=\"488.00\" y=\"469.25\""), "{under}");
+        assert!(under.contains("rotate(180.0 500.00 481.25)"), "{under}");
+        // Nothing of the crop at all: no layer.
+        let (under, over) = layers(
+            &picture,
+            &rows,
+            &boxes,
+            Cut(Some((900.0, 950.0, 900.0, 950.0))),
+        );
+        assert!(under.is_empty() && over.is_empty(), "{under:?} {over:?}");
     }
 }

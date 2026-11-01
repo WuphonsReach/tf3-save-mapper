@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use super::{OUTLINE, Picture, escape, fmt1, fmt2, layer, points_attr, safe_id};
+use super::{Cut, OUTLINE, Picture, escape, fmt1, fmt2, layer, points_attr, safe_id};
 use crate::geometry::{bounds, centroid_inside};
 use crate::install::Polygon;
 use crate::instances::Instance;
@@ -140,20 +140,31 @@ pub fn faces_with_measured(install_faces: HashMap<String, Polygon>) -> HashMap<S
     faces
 }
 
-/// Metres from an industry's origin within which it may show: its badge,
-/// its footprint's corners and its round parts.
-pub(super) fn reach(key: &str, faces: &HashMap<String, Polygon>) -> f64 {
-    let corners = faces
-        .get(key)
-        .into_iter()
-        .flatten()
-        .map(|&(a, b)| a.hypot(b));
+/// The corners of what is drawn for an industry, picture metres: its
+/// footprint, the boxes round its round parts and round its badge.
+fn drawn(
+    picture: &Picture,
+    i: &Instance,
+    key: &str,
+    faces: &HashMap<String, Polygon>,
+) -> Vec<(f64, f64)> {
+    let around = |(a, b): (f64, f64), r: f64| {
+        let (u, v) = picture.pic(i.place(a, b));
+        [(u - r, v - r), (u + r, v + r)]
+    };
+    let face = faces.get(key);
+    let (centre, d) = face.map_or(((0.0, 0.0), DIAMETER), |f| face_badge(f));
     let discs = MEASURED_DISCS
         .iter()
         .filter(|(k, _)| *k == key)
         .flat_map(|(_, d)| d.iter())
-        .map(|&(a, b, r)| a.hypot(b) + r);
-    corners.chain(discs).fold(DIAMETER / 2.0, f64::max)
+        .flat_map(|&(a, b, r)| around((a, b), r));
+    face.into_iter()
+        .flatten()
+        .map(|&(a, b)| picture.pic(i.place(a, b)))
+        .chain(discs)
+        .chain(around(centre, d / 2.0))
+        .collect()
 }
 
 /// The badge of a footprint: its centre in the industry's axes and its diameter.
@@ -169,12 +180,17 @@ pub(super) fn layers(
     picture: &Picture,
     rows: &[(Instance, String)],
     faces: &HashMap<String, Polygon>,
+    cut: Cut,
 ) -> Vec<String> {
+    let rows: Vec<&(Instance, String)> = rows
+        .iter()
+        .filter(|(i, key)| cut.meets(&drawn(picture, i, key, faces), OUTLINE / 2.0))
+        .collect();
     if rows.is_empty() {
         return Vec::new();
     }
     let mut by_key: BTreeMap<&str, Vec<&Instance>> = BTreeMap::new();
-    for (i, key) in rows {
+    for (i, key) in &rows {
         by_key.entry(key.as_str()).or_default().push(i);
     }
     let mut out = vec![
@@ -314,7 +330,7 @@ mod tests {
             "farm".to_owned(),
             vec![(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)],
         )]));
-        let text = layers(&picture, &[farm(10.0, 20.0)], &faces).join("\n");
+        let text = layers(&picture, &[farm(10.0, 20.0)], &faces, Cut(None)).join("\n");
         // 0.4 of the 50 m side, on the centroid (50, 25) from the origin.
         assert!(text.contains("data-diameter=\"20.0\""), "{text}");
         assert!(
@@ -335,7 +351,7 @@ mod tests {
             height: 1000.0,
             north: crate::svg::North::Game,
         };
-        let text = layers(&picture, &[farm(0.0, 0.0)], &HashMap::new()).join("\n");
+        let text = layers(&picture, &[farm(0.0, 0.0)], &HashMap::new(), Cut(None)).join("\n");
         assert!(text.contains("data-diameter=\"64.0\""));
         assert!(text.contains("<circle cx=\"500.00\" cy=\"500.00\""));
         assert!(!text.contains("industry-footprints"));

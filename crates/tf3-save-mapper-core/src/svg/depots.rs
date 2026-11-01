@@ -10,20 +10,38 @@
 
 use std::collections::HashMap;
 
-use super::{OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr};
+use super::{Cut, OUTLINE, Picture, escape, fmt1, fmt2, layer, loops_d, points_attr};
 use crate::geometry::{bounds, closed_outline};
 use crate::install::{DEPOT_KINDS, DepotKind, DepotSpec};
 use crate::instances::Instance;
 
-/// Metres from a building's origin within which it may show.
-pub(super) const REACH: f64 = 40.0;
 /// Metres: the radius of the dot for a building with no face.
 const DOT: f64 = 4.0;
+
+/// The corners of what is drawn for a building, picture metres: its face and
+/// collider boxes, or the box round its dot.
+fn drawn(picture: &Picture, i: &Instance, spec: Option<&DepotSpec>) -> Vec<(f64, f64)> {
+    let local = |a: f64, b: f64| picture.pic(i.place(a, b));
+    match spec {
+        Some(s) if !s.boxes.is_empty() => std::iter::once(bounds(&s.face))
+            .chain(s.boxes.iter().copied())
+            .flat_map(|(x0, x1, y0, y1)| {
+                [local(x0, y0), local(x1, y0), local(x1, y1), local(x0, y1)]
+            })
+            .collect(),
+        Some(s) if !s.face.is_empty() => s.face.iter().map(|&(a, b)| local(a, b)).collect(),
+        _ => {
+            let (cx, cy) = local(0.0, 0.0);
+            vec![(cx - DOT, cy - DOT), (cx + DOT, cy + DOT)]
+        }
+    }
+}
 
 pub(super) fn layers(
     picture: &Picture,
     instances: &[Instance],
     specs: &HashMap<&'static str, DepotSpec>,
+    cut: Cut,
 ) -> Vec<String> {
     let mut out = Vec::new();
     for kind in DEPOT_KINDS {
@@ -31,7 +49,10 @@ pub(super) fn layers(
         if kind.archive.is_some() && spec.is_none() {
             continue;
         }
-        let rows: Vec<&Instance> = instances.iter().filter(|i| i.model == kind.model).collect();
+        let rows: Vec<&Instance> = instances
+            .iter()
+            .filter(|i| i.model == kind.model && cut.meets(&drawn(picture, i, spec), OUTLINE / 2.0))
+            .collect();
         if rows.is_empty() {
             continue;
         }
@@ -138,7 +159,7 @@ mod tests {
             depot("depots/road/road_depot/road_depot_sm.mdl"),
             depot("assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl"),
         ];
-        let text = layers(&picture, &rows, &specs).join("\n");
+        let text = layers(&picture, &rows, &specs, Cut(None)).join("\n");
         // Facing north: the building's a axis runs up the picture, its b axis to the west.
         assert!(
             text.contains("points=\"100.00,100.00 100.00,80.00 90.00,80.00 90.00,100.00\""),
