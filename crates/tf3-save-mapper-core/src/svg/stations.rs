@@ -334,6 +334,46 @@ mod tests {
     }
 
     #[test]
+    fn era_b_platforms_are_drawn() {
+        let picture = Picture {
+            width: 1000.0,
+            height: 1000.0,
+            north: crate::svg::North::Game,
+        };
+        let boxes = HashMap::from([(
+            "stations/rail/era_b/perron_10.mdl".to_owned(),
+            (0.0, -5.0, 40.0, 5.0),
+        )]);
+        let rows = [piece("stations/rail/era_b/perron_10.mdl", 0.0, 0.0)];
+        let (under, _) = layers(&picture, &rows, &boxes);
+        let under = under.join("\n");
+        assert!(under.contains("id=\"station-rail-platforms\""), "{under}");
+        assert!(under.contains("data-model=\"stations/rail/era_b/perron_10.mdl\""));
+    }
+
+    #[test]
+    fn a_street_border_with_no_platform_tiles_closes_what_it_opens() {
+        let picture = Picture {
+            width: 1000.0,
+            height: 1000.0,
+            north: crate::svg::North::Game,
+        };
+        let centre = "stations/street/modular_street_station/models/era_b/cntr_a.mdl";
+        let boxes = HashMap::from([(centre.to_owned(), (-5.0, -5.0, 5.0, 5.0))]);
+        let rows = [piece(centre, 0.0, 0.0)];
+        let (under, over) = layers(&picture, &rows, &boxes);
+        assert!(under.is_empty());
+        let over = over.join("\n");
+        assert!(over.contains("station-street-borders"), "{over}");
+        assert!(!over.contains("id=\"station-street-platforms\""), "{over}");
+        assert_eq!(
+            over.matches("<g").count(),
+            over.matches("</g>").count(),
+            "{over}"
+        );
+    }
+
+    #[test]
     fn a_landing_gets_an_anchor_turned_towards_the_deck() {
         let picture = Picture {
             width: 1000.0,
