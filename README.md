@@ -17,7 +17,7 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
 - A **compass rose**, in the lower right corner unless asked elsewhere.
 
-Each layer is a group marked as an Inkscape layer with a readable name (`inkscape:groupmode="layer"`, `inkscape:label`), so the Layers panel lists them in drawing order and each can be hidden or locked. As in the Python prototype, it also has `class="layer"` and its id in `data-layer`, so a page script can find the layers with `g.layer`. A group that holds one vehicle, depot or badge inside a layer is not a layer.
+Each layer is a group marked as an Inkscape layer with a readable name (`inkscape:groupmode="layer"`, `inkscape:label`), so the Layers panel lists them in drawing order and each can be hidden or locked. It also has `class="layer"` and its id in `data-layer`, so a page script can find the layers with `g.layer`. A group that holds one vehicle, depot or badge inside a layer is not a layer.
 
 The shapes of stations, depots and industry footprints come from the game's own files, read from your install when the tool runs (see below). Without an install the map still has the terrain, the network and the industry badges.
 
@@ -83,7 +83,7 @@ The binary is `target/release/tf3map`.
 
 Your mileage will vary with the machine, the disk and what the save holds. This is what I have seen locally, not a promise.
 
-Measured on 2026-10-24 with `tf3map` 0.5.0 (release build) on 30 catalog saves, picked evenly by file size from 207 distinct ones (14 to 394 MB). One machine, one save at a time, default options. `tf3map` time is the median of three runs and memory the highest peak; the Python prototype's `terrain_map.py` ran once with its defaults, which match ours. All 60 runs worked.
+Measured on 2026-10-24 with `tf3map` 0.5.0 (release build) on 30 catalog saves, picked evenly by file size from 207 distinct ones (14 to 394 MB). One machine, one save at a time, default options. `tf3map` time is the median of three runs and memory the highest peak; the Python prototype's `terrain_map.py` (since retired, see Status) ran once with its defaults, which matched ours. All 60 runs worked.
 
 | Save file size | Saves | `tf3map` time | `tf3map` peak memory |
 |---|---|---|---|
@@ -93,7 +93,7 @@ Measured on 2026-10-24 with `tf3map` 0.5.0 (release build) on 30 catalog saves, 
 | over 200 MB | 3 | 1.6 to 2.6 s | 1.0 to 1.7 GB |
 
 - **Typical save:** under a second and under 500 MB. The largest one measured (394 MB file, 13,948 road edges) took 2.6 s and 1.7 GB. All 30 together took 22.7 s.
-- **Against the prototype:** a median of 100 times faster (67 to 156 times) and about 3 times less memory (2.5 to 3.1 times). The prototype took 9 s to 273 s per save and peaked at 5.1 GB, so keep its parallel runs few. For `tf3map`, budget at most about 1.7 GB per job when running several at once.
+- **Against the prototype:** a median of 100 times faster (67 to 156 times) and about 3 times less memory (2.5 to 3.1 times). The prototype took 9 s to 273 s per save and peaked at 5.1 GB. For `tf3map`, budget at most about 1.7 GB per job when running several at once.
 - **What drives it:** time and memory follow the size of the save's data stream more than the number of edges, so two saves with equal edge counts can differ.
 - **Format 605:** six saves written by the newer 40425 build (format 605), including the 20,480 by 40,960 m Giant map, drew without a failure in 1.0 to 1.4 s and 0.9 to 1.1 GB each. On two of them the prototype's counts of road and track edges, depots, industry badges and station pieces equalled ours; the geometry was not compared.
 
@@ -129,4 +129,4 @@ Licensed under either of [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT), at 
 
 ## Status
 
-Early. The layers match the Python prototype in tf3-save-format element for element on the saves compared, apart from where we chose otherwise (widths from the save's own lanes, one outline width). Header fields beyond the map size are read only on formats 599 to 604. Older saves without a model table get no stations, depots or industries.
+Early. `tf3map` is the map drawer of tf3-save-format, whose tools and notes call it. It replaced the Python prototype there (`terrain_map.py`, removed in November 2026), and its layers matched the prototype's element for element on the saves compared, apart from where we chose otherwise (widths from the save's own lanes, one outline width). Header fields beyond the map size are read only on formats 599 to 604. Older saves without a model table get no stations, depots or industries.
