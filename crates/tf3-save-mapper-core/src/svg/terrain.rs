@@ -18,7 +18,7 @@ use std::ops::RangeInclusive;
 
 use super::raster::{self, Sampling};
 use super::{North, Picture, SvgOptions, fmt_g, layer};
-use crate::contour::{Grid, Point, level_rings, simplify, split_at_border};
+use crate::contour::{Grid, Point, ground_level, level_rings, simplify, split_at_border};
 use crate::terrain::{GRID_STEP, Terrain};
 
 /// The height ramp: (metres above the water, colour), interpolated.
@@ -240,6 +240,7 @@ pub(super) fn write(
         step_m / unit,
         4.0 * spacing,
     );
+    let base = ground_level(&grid, t.water_units(), step_m / unit, &rings);
     let tolerance = 0.4 * mpp;
     let rings: Vec<(u32, Vec<Vec<Point>>)> = rings
         .into_iter()
@@ -251,7 +252,7 @@ pub(super) fn write(
     );
     let thin = 0.5 * mpp; // so a line stays thinner than a road
     let land = if options.bands {
-        land_colour(step_m / 2.0)
+        land_colour((f64::from(base) + 0.5) * step_m)
     } else {
         LAND_FILL.to_owned()
     };
@@ -268,7 +269,7 @@ pub(super) fn write(
             layer("bands", "Height bands", " stroke=\"none\"")
         )?;
         let rect = format!("M0 0H{w}V{h}H0Z");
-        for (k, rs) in rings.iter().filter(|(k, _)| *k > 0) {
+        for (k, rs) in rings.iter().filter(|(k, _)| *k > base) {
             writeln!(
                 out,
                 "<path class=\"band\" data-height=\"{}\" fill=\"{}\" fill-rule=\"evenodd\" d=\"{rect}{}\"/>",

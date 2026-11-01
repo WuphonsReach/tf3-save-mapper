@@ -244,6 +244,28 @@ pub fn level_rings(
     (out, (right, bottom))
 }
 
+/// The level the land starts from: the highest level, from 1 up to the
+/// grid's highest ground, that `rings` holds nothing at, or 0 if there is
+/// none. All the ground lies at or above it, but for pits whose rings were
+/// too short to keep, so the bands at and below it cover the whole picture.
+pub fn ground_level(
+    grid: &Grid,
+    water: f64,
+    step: f64,
+    rings: &BTreeMap<u32, Vec<Vec<Point>>>,
+) -> u32 {
+    let top = f64::from(grid.values.iter().copied().max().unwrap_or(0));
+    let mut base = 0;
+    let mut k = 1;
+    while water + f64::from(k) * step <= top {
+        if !rings.contains_key(&k) {
+            base = k;
+        }
+        k += 1;
+    }
+    base
+}
+
 /// A ring (closed implicitly) as the open polylines left when the pieces that
 /// run along the picture's edge are dropped, each with whether it is closed.
 /// A ring that never touches the edge comes back whole and closed.
@@ -382,6 +404,28 @@ mod tests {
             assert!(inner.iter().all(|p| (p.0 - u).abs() < 1e-9), "{line:?}");
             assert!(line.iter().any(|p| p.1 == 0.0) && line.iter().any(|p| p.1 == 8.0));
         }
+    }
+
+    #[test]
+    fn the_land_starts_from_the_band_of_its_lowest_ground() {
+        // A hill wholly above the first two levels: 25 to 55 over water at 5,
+        // steps of 10. Levels 1 (15) and 2 (25) have no ring; 3 (35) and up do.
+        let g = grid(4, &[25, 35, 45, 55, 25, 35, 45, 55, 25, 35, 45, 55]);
+        let (rings, _) = level_rings(&g, 4.0, 5.0, 10.0, 0.0);
+        assert_eq!(rings.keys().copied().collect::<Vec<_>>(), [3, 4, 5]);
+        assert_eq!(ground_level(&g, 5.0, 10.0, &rings), 2);
+        // With water and a slope through every level, nothing is skipped.
+        let g = grid(4, &[0, 10, 20, 30, 0, 10, 20, 30, 0, 10, 20, 30]);
+        let (rings, _) = level_rings(&g, 4.0, 5.0, 10.0, 0.0);
+        assert_eq!(ground_level(&g, 5.0, 10.0, &rings), 0);
+        // A pit too small to keep: the land above it starts at its level.
+        let g = grid(3, &[30, 30, 30, 30, 0, 30, 30, 30, 30]);
+        let (rings, _) = level_rings(&g, 4.0, 5.0, 10.0, 100.0);
+        assert!(rings.is_empty());
+        assert_eq!(ground_level(&g, 5.0, 10.0, &rings), 2);
+        // All under water: no land level at all.
+        let g = grid(2, &[1, 2, 3, 4]);
+        assert_eq!(ground_level(&g, 5.0, 10.0, &BTreeMap::new()), 0);
     }
 
     #[test]
