@@ -69,7 +69,8 @@ Options:
       --keep-dead     also draw edges whose end node is in the free-id list (roads the game deleted)
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
-                      name such as \"Road Vehicle 279\" is shortened to RV279
+                      name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
+                      instance's place among all the save's model instances, in stream order
       --label A>B[=TEXT]  name the edge between nodes A and B (hex ids, either order) along its middle,
                       with TEXT or A>B, and mark its ends (repeatable)
       --edge-ids      with --label, add the edge's entity id where the strip table gives it
