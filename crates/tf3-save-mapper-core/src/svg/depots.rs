@@ -1,5 +1,6 @@
 //! The depot layers, one per kind in `install::DEPOT_KINDS`: each building's
-//! ground face from its script, placed from the instance's origin and
+//! ground face from its script (the road depot's lot, our own outline, in
+//! place of its face), placed from the instance's origin and
 //! facing, opaque (so it hides the ends of the road lanes under it) with the
 //! stations' black outline and no marks inside. A ship depot that reaches
 //! into the water is the outline of its face and collider boxes together. A
