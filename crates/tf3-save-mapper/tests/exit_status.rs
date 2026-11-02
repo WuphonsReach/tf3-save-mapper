@@ -24,6 +24,9 @@ fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
+/// The layers that read the game install, left out: tests never need one.
+const NO_INSTALL: [&str; 3] = ["--no-industries", "--no-depots", "--no-stations"];
+
 /// The core tests' hand-built save, with two roads: enough to draw a map.
 fn drawable_save(dir: &Path) -> PathBuf {
     let edges = [
@@ -119,6 +122,7 @@ fn a_map_that_cannot_be_drawn_as_asked_exits_with_status_2() {
     let out_path = dir.join("map.svg");
     let run = |extra: &[&str]| {
         let mut args = vec![save.to_str().unwrap(), "-o", out_path.to_str().unwrap()];
+        args.extend(NO_INSTALL);
         args.extend(extra);
         tf3map(&args)
     };
@@ -170,7 +174,7 @@ fn a_mods_folder_is_checked_only_where_it_is_read() {
     let used = run(&[]);
     assert_eq!(used.status.code(), Some(1));
     assert!(stderr(&used).starts_with("tf3map: no mods folder at "));
-    let unused = run(&["--no-depots"]);
+    let unused = run(&NO_INSTALL);
     assert_eq!(unused.status.code(), Some(0), "{}", stderr(&unused));
     assert!(stderr(&unused).contains("--mods is read for the depots and --coverage: not read"));
     std::fs::remove_dir_all(dir).unwrap();
