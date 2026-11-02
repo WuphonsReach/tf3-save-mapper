@@ -236,24 +236,26 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         (industries, depots, stations) = (false, false, false);
         (grid, no_grid) = (None, true);
         options.rose = None;
-    } else {
-        // What was switched away from the default, for the view record.
-        for (name, set, default) in [
-            ("terrain", terrain, true),
-            ("industries", industries, true),
-            ("depots", depots, true),
-            ("stations", stations, true),
-            ("coverage", coverage, false),
-            ("vehicles", vehicles, false),
-        ] {
-            if set != default {
-                let value = if set { "on" } else { "off" };
-                options.settings.push((name, value.to_owned()));
-            }
+    }
+    // What was switched away from the default, for the view record. A flat
+    // PNG leaves the industries, depots and stations out whatever was asked.
+    for (name, set, default) in [
+        ("terrain", terrain, true),
+        ("industries", industries, true),
+        ("depots", depots, true),
+        ("stations", stations, true),
+        ("coverage", coverage, false),
+        ("vehicles", vehicles, false),
+        ("keep-dead", keep_dead, false),
+    ] {
+        if set != default && !(png && matches!(name, "industries" | "depots" | "stations")) {
+            let value = if set { "on" } else { "off" };
+            options.settings.push((name, value.to_owned()));
         }
-        if mods.is_some() {
-            options.settings.push(("mods", "on".to_owned()));
-        }
+    }
+    // The mods folder is read for the depots only.
+    if mods.is_some() && (depots || coverage) {
+        options.settings.push(("mods", "on".to_owned()));
     }
     if options.raster {
         if !terrain {
@@ -453,15 +455,17 @@ fn run(args: Args) -> Result<(), Failure> {
         _ => false,
     };
     if names_a_save(&args.output) {
-        return Err("the output must not be a .sav file".to_owned().into());
+        return Err(Failure::usage("the output must not be a .sav file"));
     }
     if same_file {
-        return Err("the output must not be the save itself".to_owned().into());
+        return Err(Failure::usage("the output must not be the save itself"));
     }
-    if let Some(dir) = &args.mods
-        && !dir.is_dir()
-    {
-        return Err(format!("no mods folder at {}", dir.display()).into());
+    if let Some(dir) = &args.mods {
+        if !(args.depots || args.coverage) {
+            eprintln!("--mods is read for the depots and --coverage: not read");
+        } else if !dir.is_dir() {
+            return Err(format!("no mods folder at {}", dir.display()).into());
+        }
     }
 
     let o = &args.options;
@@ -473,7 +477,12 @@ fn run(args: Args) -> Result<(), Failure> {
         );
     }
 
-    let file = File::open(&args.save).map_err(|e| format!("cannot open the save: {e}"))?;
+    let cannot_open = |e| format!("cannot open the save: {e}");
+    let file = File::open(&args.save).map_err(cannot_open)?;
+    // A folder opens on Unix, and would only fail once read.
+    if file.metadata().map_err(cannot_open)?.is_dir() {
+        return Err(format!("cannot open the save: {} is a folder", args.save.display()).into());
+    }
     let cannot_read = |e: tf3_save_mapper_core::Error| Failure {
         code: EXIT_REFUSED,
         message: format!("cannot read the save: {e}"),
@@ -724,8 +733,8 @@ fn write_output(
     header: &Header,
     edges: &[Edge],
     layers: &Layers,
-) -> Result<(), String> {
-    let cannot_write = |e: std::io::Error| format!("cannot write the output: {e}");
+) -> Result<(), Failure> {
+    let cannot_write = |e: std::io::Error| Failure::from(format!("cannot write the output: {e}"));
 
     // A new file only (never through an existing name); skip names already taken.
     let mut attempt = 0;
@@ -751,32 +760,47 @@ fn write_output(
     } else {
         write_svg(&mut out, header, edges, layers, &args.options)
     };
-    let written = drawn
-        .and_then(|()| out.flush())
-        .and_then(|()| std::fs::rename(&temp, &args.output));
-    if let Err(e) = written {
+    let written = match drawn {
+        // A map that cannot be drawn as asked (a picture too big, a grid too
+        // fine) is an argument error, and says so itself.
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
+            Err(Failure::usage(&e.to_string()))
+        }
+        drawn => drawn
+            .and_then(|()| out.flush())
+            .and_then(|()| std::fs::rename(&temp, &args.output))
+            .map_err(cannot_write),
+    };
+    if written.is_err() {
+        drop(out);
         let _ = std::fs::remove_file(&temp);
-        // A map that cannot be drawn as asked (a picture too big) says so itself.
-        return Err(if e.kind() == std::io::ErrorKind::InvalidInput {
-            e.to_string()
-        } else {
-            cannot_write(e)
-        });
     }
-    Ok(())
+    written
 }
 
 /// Exit status: 0 the map was written, 1 something else failed (the file
 /// cannot be opened, no install, the output cannot be written), 2 the
-/// arguments are wrong, 3 the save was refused (the reader found it
-/// unreadable). Every failure writes one `tf3map: MESSAGE` line to stderr.
+/// arguments are wrong (the output names a save, or the map cannot be drawn
+/// as asked), 3 the save was refused (the reader found it unreadable: not
+/// zstd, empty, or no save inside). Every failure writes one
+/// `tf3map: MESSAGE` line to stderr.
 const EXIT_FAILED: u8 = 1;
 const EXIT_USAGE: u8 = 2;
 const EXIT_REFUSED: u8 = 3;
 
+#[derive(Debug)]
 struct Failure {
     code: u8,
     message: String,
+}
+
+impl Failure {
+    fn usage(message: &str) -> Self {
+        Failure {
+            code: EXIT_USAGE,
+            message: message.to_owned(),
+        }
+    }
 }
 
 impl From<String> for Failure {
@@ -1035,6 +1059,35 @@ mod tests {
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_view_record_names_what_was_switched_and_used() {
+        let settings = |args: &[&str]| run_args(args).options.settings;
+        let on = |name| (name, "on".to_owned());
+        let off = |name| (name, "off".to_owned());
+        assert_eq!(settings(&["s.sav"]), []);
+        assert_eq!(
+            settings(&["s.sav", "--keep-dead", "--no-stations"]),
+            [off("stations"), on("keep-dead")]
+        );
+        // A PNG leaves the industries, depots and stations out by itself.
+        assert_eq!(settings(&["s.sav", "--png"]), []);
+        assert_eq!(
+            settings(&["s.sav", "--png", "--no-terrain", "--keep-dead"]),
+            [off("terrain"), on("keep-dead")]
+        );
+        // The mods folder counts only where depots are read.
+        assert_eq!(settings(&["s.sav", "--mods", "m"]), [on("mods")]);
+        assert_eq!(
+            settings(&["s.sav", "--mods", "m", "--no-depots", "--coverage"]),
+            [off("depots"), on("coverage"), on("mods")]
+        );
+        assert_eq!(
+            settings(&["s.sav", "--mods", "m", "--no-depots"]),
+            [off("depots")]
+        );
+        assert_eq!(settings(&["s.sav", "--mods", "m", "--png"]), []);
     }
 
     #[test]

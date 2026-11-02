@@ -1,8 +1,11 @@
 //! The exit status and the stderr line a caller (a batch run over many saves)
 //! tells the outcomes apart by.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+#[path = "../../tf3-save-mapper-core/tests/common/mod.rs"]
+mod common;
 
 fn tf3map(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_tf3map"))
@@ -19,6 +22,38 @@ fn scratch(name: &str) -> PathBuf {
 
 fn stderr(out: &Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// The core tests' hand-built save, with two roads: enough to draw a map.
+fn drawable_save(dir: &Path) -> PathBuf {
+    let edges = [
+        common::EdgeSpec {
+            a: 100,
+            b: 101,
+            p0: [-1000.0, 500.0, 37.5],
+            p1: [-900.0, 500.0, 52.25],
+            ..common::EdgeSpec::default()
+        },
+        common::EdgeSpec {
+            a: 101,
+            b: 102,
+            p0: [-900.0, 500.0, 52.25],
+            p1: [-900.0, 400.0, 81.75],
+            ..common::EdgeSpec::default()
+        },
+    ];
+    let save = dir.join("drawn.sav");
+    std::fs::write(&save, common::sav(&common::stream(&edges))).unwrap();
+    save
+}
+
+/// The files in `dir` other than `keep`: what a refused run left behind.
+fn left_over(dir: &Path, keep: &Path) -> Vec<PathBuf> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p != keep)
+        .collect()
 }
 
 #[test]
@@ -39,10 +74,106 @@ fn a_file_that_is_not_a_save_is_refused_with_status_3() {
 }
 
 #[test]
+fn an_empty_file_is_refused_with_status_3() {
+    let dir = scratch("empty");
+    let save = dir.join("empty.sav");
+    std::fs::write(&save, b"").unwrap();
+    let svg = dir.join("empty.svg");
+    let out = tf3map(&[save.to_str().unwrap(), "-o", svg.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(3));
+    assert!(stderr(&out).starts_with("tf3map: cannot read the save: "));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn wrong_arguments_exit_with_status_2() {
     let out = tf3map(&["--no-such-option"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(stderr(&out).starts_with("tf3map: unknown option"));
+}
+
+#[test]
+fn an_output_that_names_a_save_exits_with_status_2() {
+    let dir = scratch("output-sav");
+    // The save need not exist: the output is refused first.
+    let save = dir.join("none.sav");
+    let out = tf3map(&[
+        save.to_str().unwrap(),
+        "-o",
+        dir.join("x.sav").to_str().unwrap(),
+    ]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr(&out).starts_with("tf3map: the output must not be a .sav file"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(left_over(&dir, &save), Vec::<PathBuf>::new());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_map_that_cannot_be_drawn_as_asked_exits_with_status_2() {
+    let dir = scratch("drawn");
+    let save = drawable_save(&dir);
+    let out_path = dir.join("map.svg");
+    let run = |extra: &[&str]| {
+        let mut args = vec![save.to_str().unwrap(), "-o", out_path.to_str().unwrap()];
+        args.extend(extra);
+        tf3map(&args)
+    };
+    // The save draws as it is.
+    let fine = run(&[]);
+    assert_eq!(fine.status.code(), Some(0), "{}", stderr(&fine));
+    std::fs::remove_file(&out_path).unwrap();
+    for (extra, message) in [
+        (&["--grid", "1"][..], "tf3map: a grid every 1 m would have "),
+        (
+            &["--png", "--mpp", "8192"],
+            "tf3map: the picture would be 0 x 0 pixels",
+        ),
+        (
+            &["--raster", "--mpp", "8192"],
+            "tf3map: the picture would be 0 x 0 pixels",
+        ),
+    ] {
+        let out = run(extra);
+        assert_eq!(out.status.code(), Some(2), "{extra:?}: {}", stderr(&out));
+        assert!(
+            stderr(&out).starts_with(message),
+            "{extra:?}: {}",
+            stderr(&out)
+        );
+        // Neither the map nor its temporary file is left.
+        assert_eq!(left_over(&dir, &save), Vec::<PathBuf>::new(), "{extra:?}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_mods_folder_is_checked_only_where_it_is_read() {
+    let dir = scratch("mods");
+    let save = drawable_save(&dir);
+    let svg = dir.join("map.svg");
+    let none = dir.join("no-such-folder");
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            save.to_str().unwrap(),
+            "-o",
+            svg.to_str().unwrap(),
+            "--mods",
+            none.to_str().unwrap(),
+        ];
+        args.extend(extra);
+        tf3map(&args)
+    };
+    let used = run(&[]);
+    assert_eq!(used.status.code(), Some(1));
+    assert!(stderr(&used).starts_with("tf3map: no mods folder at "));
+    let unused = run(&["--no-depots"]);
+    assert_eq!(unused.status.code(), Some(0), "{}", stderr(&unused));
+    assert!(stderr(&unused).contains("--mods is read for the depots and --coverage: not read"));
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -53,6 +184,23 @@ fn a_missing_save_fails_with_status_1() {
     let out = tf3map(&[save.to_str().unwrap(), "-o", svg.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(1));
     assert!(stderr(&out).starts_with("tf3map: cannot open the save: "));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_folder_given_as_the_save_fails_with_status_1() {
+    let dir = scratch("folder");
+    let save = dir.join("folder.sav");
+    std::fs::create_dir(&save).unwrap();
+    let svg = dir.join("folder.svg");
+    let out = tf3map(&[save.to_str().unwrap(), "-o", svg.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with("tf3map: cannot open the save: "),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!svg.exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -117,7 +265,7 @@ fn an_output_that_is_the_save_itself_is_refused() {
     let save = dir.join("map.svg");
     std::fs::write(&save, header_only_save()).unwrap();
     let out = tf3map(&[save.to_str().unwrap(), "-o", save.to_str().unwrap()]);
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(out.status.code(), Some(2));
     assert!(
         stderr(&out).starts_with("tf3map: the output must not be the save itself"),
         "{}",
