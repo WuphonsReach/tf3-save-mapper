@@ -14,3 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 tf3-save-mapper-core.workspace = true
+
+[dev-dependencies]
+# For the core tests' hand-built save (tests/exit_status.rs).
+zstd.workspace = true

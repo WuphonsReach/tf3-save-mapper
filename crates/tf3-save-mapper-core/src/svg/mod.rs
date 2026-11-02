@@ -720,7 +720,8 @@ fn view_fields(
 
 /// What was set away from its default, in the prototype's names where it has
 /// one (`contour-step`, `index-every`, `bands`, `grid`, `grid-step`,
-/// `grid-lines`, `terrain`), so the record says how the map was made.
+/// `grid-lines`, `terrain`), so the record says how the map was made. The
+/// dot step and the rose's size count only when there is a grid or a rose.
 fn non_default_settings(options: &SvgOptions) -> Vec<(&'static str, String, bool)> {
     let default = SvgOptions::default();
     let mut found = Vec::new();
@@ -738,13 +739,15 @@ fn non_default_settings(options: &SvgOptions) -> Vec<(&'static str, String, bool
         f64::from(options.index_every),
         f64::from(default.index_every),
     );
-    number(
-        "grid-dot-step",
-        options.grid_dot_step,
-        default.grid_dot_step,
-    );
+    if options.grid != GridStep::Off {
+        number(
+            "grid-dot-step",
+            options.grid_dot_step,
+            default.grid_dot_step,
+        );
+    }
     number("zoom", f64::from(options.zoom), f64::from(default.zoom));
-    if let Some(size) = options.rose_size {
+    if let Some(size) = options.rose_size.filter(|_| options.rose.is_some()) {
         found.push(("rose-size", fmt_g(size), false));
     }
     if options.raster {
@@ -1203,6 +1206,28 @@ mod tests {
         let record = view_record(&header(), &corner, (250, 500), 4.0, &options);
         assert!(record.contains("\"note\": \"say \\\"hi\\\"\""), "{record}");
         assert!(record.contains("\"x-max\": 500,"), "{record}");
+    }
+
+    #[test]
+    fn a_setting_without_its_layer_is_not_recorded() {
+        let names = |options: SvgOptions| -> Vec<&str> {
+            non_default_settings(&options)
+                .into_iter()
+                .map(|(name, _, _)| name)
+                .collect()
+        };
+        let sized = SvgOptions {
+            rose_size: Some(100.0),
+            grid_dot_step: 50.0,
+            ..SvgOptions::default()
+        };
+        assert_eq!(names(sized.clone()), ["grid-dot-step", "rose-size"]);
+        let bare = SvgOptions {
+            rose: None,
+            grid: GridStep::Off,
+            ..sized
+        };
+        assert_eq!(names(bare), ["grid", "rose"]);
     }
 
     #[test]

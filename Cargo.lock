@@ -151,6 +151,7 @@ name = "tf3-save-mapper"
 version = "0.7.2"
 dependencies = [
  "tf3-save-mapper-core",
+ "zstd",
 ]
 
 [[package]]
