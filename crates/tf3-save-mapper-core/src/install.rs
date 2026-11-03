@@ -177,6 +177,7 @@ fn library_folders(root: &Path) -> Vec<PathBuf> {
 /// install, the model whose instances are drawn and its fill. A kind with no
 /// archive is a mod's: its script is the file at `script` in the mod's
 /// folder, and a dot stands for a building whose script has no ground face.
+/// A kind with an `outline` is drawn with it in place of the script's face.
 pub struct DepotKind {
     pub id: &'static str,
     pub label: &'static str,
@@ -184,7 +185,27 @@ pub struct DepotKind {
     pub script: &'static str,
     pub model: &'static str,
     pub fill: &'static str,
+    pub outline: Option<&'static [(f64, f64)]>,
 }
+
+/// The road depot's lot in its own axes, measured by us from screenshots
+/// (the script's face is the box round it): the yard, and a 16 m wide
+/// entrance box in front of it, centred on the entrance lane at a = 0, out
+/// to the road.
+const ROAD_DEPOT_LOT: &[(f64, f64)] = &[
+    (-17.5, 19.8),
+    (-17.5, -14.0),
+    (-8.0, -14.0),
+    (-8.0, -21.1),
+    (8.0, -21.1),
+    (8.0, -14.0),
+    (38.7, -14.0),
+    (38.7, 19.8),
+];
+
+/// Metres: how far an `outline`'s box may lie from the script's face for the
+/// outline to be used, so a face changed by a game update is drawn as read.
+const OUTLINE_FIT: f64 = 1.5;
 
 /// By carrier, like the stations: ship dark brown, rail dark grey, road
 /// lighter grey, tram the lightest; a maintenance building a step darker than
@@ -197,6 +218,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "road/road_maint_station.script.lua",
         model: "depots/road/road_maint_station/road_maint_station.mdl",
         fill: "#969696",
+        outline: None,
     },
     DepotKind {
         id: "road-depots",
@@ -205,6 +227,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "road/road_depot/road_depot.script.lua",
         model: "depots/road/road_depot/road_depot.mdl",
         fill: "#b4b4b4",
+        outline: Some(ROAD_DEPOT_LOT),
     },
     DepotKind {
         id: "tram-depots",
@@ -213,6 +236,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "road/tram_depot/tram_depot.script.lua",
         model: "depots/road/tram_depot/tram_depot.mdl",
         fill: "#f2f2f2",
+        outline: None,
     },
     DepotKind {
         id: "rail-maintenance-buildings",
@@ -221,6 +245,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "rail/rail_maint_station.script.lua",
         model: "depots/rail/rail_maint_station/rail_maint_station.mdl",
         fill: "#464646",
+        outline: None,
     },
     DepotKind {
         id: "rail-depots",
@@ -229,6 +254,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "rail/rail_depot.script.lua",
         model: "depots/rail/rail_depot.mdl",
         fill: "#646464",
+        outline: None,
     },
     DepotKind {
         id: "ship-maintenance-buildings",
@@ -237,6 +263,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "water/water_maint_station.script.lua",
         model: "depots/water/water_maint_station/water_maint_station.mdl",
         fill: "#4d2d12",
+        outline: None,
     },
     DepotKind {
         id: "ship-depots",
@@ -245,6 +272,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "water/water_depot.script.lua",
         model: "depots/water/water_depot.mdl",
         fill: "#7b4a24",
+        outline: None,
     },
     DepotKind {
         id: "boathouses",
@@ -253,6 +281,7 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         script: "content/assets/ingo_bootsschuppen/ingo_bootsschuppen_maint.script.lua",
         model: "assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl",
         fill: "#7b4a24",
+        outline: None,
     },
 ];
 
@@ -289,6 +318,7 @@ pub fn depot_specs(
                     .as_mut()
                     .and_then(|a| a.read_text(kind.script))
                     .and_then(|text| parse_depot(&text))
+                    .map(|spec| with_outline(spec, kind.outline))
             }
             None => mods
                 .and_then(|m| m.script(kind.script))
@@ -299,6 +329,19 @@ pub fn depot_specs(
         }
     }
     out
+}
+
+/// The spec with `outline` as its face when the two boxes agree.
+fn with_outline(mut spec: DepotSpec, outline: Option<&[(f64, f64)]>) -> DepotSpec {
+    if let Some(outline) = outline {
+        let (a0, a1, b0, b1) = geometry::bounds(outline);
+        let (fa0, fa1, fb0, fb1) = geometry::bounds(&spec.face);
+        let off = [a0 - fa0, a1 - fa1, b0 - fb0, b1 - fb1];
+        if off.iter().all(|d| d.abs() <= OUTLINE_FIT) {
+            spec.face = outline.to_vec();
+        }
+    }
+    spec
 }
 
 /// A game depot's script: it needs a ground face.
@@ -811,6 +854,19 @@ mod tests {
         assert_eq!((spec.radius, spec.pool), (Some(400), 12));
         assert_eq!(spec.modes, "BUS,TRUCK");
         assert_eq!(parse_depot("no fields here"), None);
+    }
+
+    #[test]
+    fn the_road_depot_is_drawn_as_its_lot_while_the_face_agrees() {
+        let spec = with_outline(parse_depot(DEPOT).unwrap(), Some(ROAD_DEPOT_LOT));
+        assert_eq!(spec.face, ROAD_DEPOT_LOT);
+        let moved = DEPOT.replace("38.5", "48.5");
+        let spec = with_outline(parse_depot(&moved).unwrap(), Some(ROAD_DEPOT_LOT));
+        assert_eq!(spec.face.len(), 4, "a face that no longer fits is kept");
+        assert_eq!(
+            with_outline(parse_depot(DEPOT).unwrap(), None).face.len(),
+            4
+        );
     }
 
     /// A boathouse script in a mod's own hand-written style: a radius, a
