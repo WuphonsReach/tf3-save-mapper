@@ -1,7 +1,7 @@
 //! Reads a Transport Fever 3 save and draws it as an SVG map.
 //!
 //! This crate holds the library side: container, header, street edges,
-//! terrain, model instances, the strip table's edge ids, the facts read from
+//! terrain, model instances, the strip table's edge ids, the lane table, the facts read from
 //! the game install at run time, and the SVG writer (and a flat PNG of the
 //! terrain and the network). It has no command-line
 //! code and never writes a save. The layout it reads is described in the
@@ -15,6 +15,7 @@ pub mod geometry;
 pub mod header;
 pub mod install;
 pub mod instances;
+pub mod lanes;
 mod reader;
 pub mod strips;
 pub mod svg;
@@ -26,6 +27,7 @@ pub use error::{Error, Result};
 pub use header::{Header, read_header};
 pub use install::{Install, Mods};
 pub use instances::{Instance, ModelTable, industry_models, read_instances, read_model_table};
+pub use lanes::{read_lane_ids, retain_laned};
 pub use strips::{edge_ids, read_strips};
 pub use svg::{Layers, SvgOptions, write_png, write_svg};
 pub use terrain::{Terrain, read_terrain};

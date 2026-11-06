@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use common::{
     BOATHOUSE_MODEL, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
     FREE_RUN_START, FREE_TAIL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT, STRIP_ID, STRIP_ROWS,
-    TRACK_LANES,
+    TRACK_LANES, UNLANED_NODES,
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
@@ -15,8 +15,8 @@ use tf3_save_mapper_core::svg::{
 };
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
-    read_header, read_instances, read_model_table, read_strips, read_terrain, retain_live,
-    write_png, write_svg,
+    read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
+    retain_laned, retain_live, write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -237,6 +237,42 @@ fn free_id_list_drops_the_deleted_road() {
     let mut found = read_edges(&stream).unwrap();
     assert_eq!(retain_live(&mut found, &free), 1);
     assert_eq!(found.len(), 5);
+}
+
+#[test]
+fn the_lane_table_drops_a_leftover_road() {
+    let [n1, n2] = UNLANED_NODES;
+    let mut specs = edges();
+    // A removed industry's road: a stub joined to the network, and a piece
+    // standing apart. Neither of the piece's nodes has lanes.
+    specs.push(EdgeSpec {
+        a: 104,
+        b: n1,
+        p0: [-760.0, 430.0, 118.0],
+        p1: [-740.0, 330.0, 100.0],
+        template: "street/country/country_old_small",
+        ..EdgeSpec::default()
+    });
+    specs.push(EdgeSpec {
+        a: n1,
+        b: n2,
+        p0: [-740.0, 330.0, 100.0],
+        p1: [-720.0, 230.0, 90.0],
+        template: "street/country/country_old_small",
+        ..EdgeSpec::default()
+    });
+    let stream = common::stream(&specs);
+    let lanes = read_lane_ids(&stream).expect("lane table");
+    assert!((100..=105).all(|n| lanes.contains(&n)));
+    assert!(!lanes.contains(&n1) && !lanes.contains(&n2));
+    let mut found = read_edges(&stream).unwrap();
+    assert_eq!(found.len(), 8);
+    assert_eq!(retain_live(&mut found, &read_free_ids(&stream).unwrap()), 1);
+    assert_eq!(retain_laned(&mut found, &lanes), 1, "the piece apart");
+    assert!(
+        found.iter().any(|e| (e.a, e.b) == (104, n1)),
+        "the stub stays"
+    );
 }
 
 #[test]

@@ -13,8 +13,8 @@ use tf3_save_mapper_core::svg::{
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
-    industry_models, read_edges, read_free_ids, read_header, read_instances, read_model_table,
-    read_strips, read_terrain, retain_live, write_png, write_svg,
+    industry_models, read_edges, read_free_ids, read_header, read_instances, read_lane_ids,
+    read_model_table, read_strips, read_terrain, retain_laned, retain_live, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -66,7 +66,8 @@ Options:
       --min-width M   draw no road or track narrower than M metres (default 0, the real widths)
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
-      --keep-dead     also draw edges whose end node is in the free-id list (roads the game deleted)
+      --keep-dead     also draw edges the game deleted or no longer uses: an end node in the free-id
+                      list, or neither end in the lane table (what a removed industry leaves)
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
@@ -522,6 +523,10 @@ fn run(args: Args) -> Result<(), Failure> {
         match read_free_ids(&stream) {
             Some(free) => dropped = retain_live(&mut edges, &free),
             None => eprintln!("free-id list not found: every edge is drawn"),
+        }
+        match read_lane_ids(&stream) {
+            Some(lanes) => dropped += retain_laned(&mut edges, &lanes),
+            None => eprintln!("lane table not found: leftover industry roads are drawn"),
         }
     }
     let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
