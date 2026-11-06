@@ -2,7 +2,7 @@
 //! from a real save: a header, a model table, the terrain, a street-edge
 //! table, a decoy, model instances (an industry, two vehicles, a road
 //! maintenance building and a mod's boathouse), two
-//! road-surface strip entries and a free-id list.
+//! road-surface strip entries, a lane table and a free-id list.
 
 #![allow(dead_code)]
 
@@ -99,6 +99,22 @@ pub const STRIP_ROWS: [(u8, f32, f32); 4] = [
     (1, -905.25, 495.5),
 ];
 pub const LONE_STRIP_ID: u32 = 0x7de2;
+/// Nodes the lane table leaves out, as it does a removed industry's road: an
+/// edge between two of them is a leftover.
+pub const UNLANED_NODES: [u32; 2] = [0x6a01, 0x6a02];
+/// Entities with lanes besides the edges' nodes (the edges' own ids), enough
+/// for the reader to take the table.
+pub const LANED_FILLER: usize = 80;
+
+/// One lane record: `(a, i)` to `(a, i + 1)`, `kind`, from `at` to 4 m east.
+pub fn lane_record(a: u32, i: u32, kind: u32, at: (f32, f32)) -> Vec<u8> {
+    let mut b = Vec::new();
+    u32s(&mut b, &[a, i, a, i + 1, kind]);
+    for c in [at.0, at.1, at.0 + 4.0, at.1 + 0.5] {
+        b.extend_from_slice(&c.to_le_bytes());
+    }
+    b
+}
 
 /// The height value at grid column `c`, row `r` of the stitched grid.
 pub fn height(c: usize, r: usize) -> u16 {
@@ -308,7 +324,8 @@ pub fn strip_row(id: u32, side: u8, x: f32, y: f32) -> Vec<u8> {
 
 /// The whole stream: header, model table, terrain, a run of counters, the
 /// edge table, a decoy record far from it, the farm's, vehicles',
-/// maintenance building's and boathouse's instances, the strip entries and a free-id list near the end.
+/// maintenance building's and boathouse's instances, the strip entries, the
+/// lane table and a free-id list near the end.
 pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     let mut s = header(604);
     s.extend_from_slice(&model_table());
@@ -344,6 +361,36 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
         s.extend_from_slice(&[0x13; 6]);
     }
     s.extend_from_slice(&strip_row(LONE_STRIP_ID, 0, -700.5, 470.0));
+    // The lane table: records after two f32 1.0 (kind 2) for filler entities
+    // and every node but the unlaned ones, which a node's record (kind 0,
+    // unanchored) also reaches.
+    let mut laned: Vec<u32> = edges
+        .iter()
+        .flat_map(|e| [e.a, e.b])
+        .filter(|n| !UNLANED_NODES.contains(n))
+        .collect();
+    laned.sort_unstable();
+    laned.dedup();
+    for k in 0..LANED_FILLER {
+        let at = (-1500.0 + 23.5 * k as f32, 120.0 - 7.25 * (k % 9) as f32);
+        s.extend_from_slice(&1.0f32.to_le_bytes());
+        s.extend_from_slice(&1.0f32.to_le_bytes());
+        s.extend_from_slice(&lane_record(
+            0x5_0000 + 13 * k as u32,
+            (k % 3) as u32,
+            2,
+            at,
+        ));
+        s.extend_from_slice(&[0x44; 7]);
+    }
+    for (k, &n) in laned.iter().enumerate() {
+        u32s(&mut s, &[1, u32::MAX, 4, 1]);
+        s.extend_from_slice(&lane_record(n, 0, 0, (310.0 - 41.0 * k as f32, -77.5)));
+        s.extend_from_slice(&[0x55; 3]);
+    }
+    s.extend_from_slice(&1.0f32.to_le_bytes());
+    s.extend_from_slice(&1.0f32.to_le_bytes());
+    s.extend_from_slice(&lane_record(0x5_1000, 0, 3, (12.0, 34.0)));
     // The free-id list: a count word, a head that breaks the ascending run,
     // the long run and some unsorted ids; then its trailer (2, a u32, a str
     // of digits) and words no id can be.
