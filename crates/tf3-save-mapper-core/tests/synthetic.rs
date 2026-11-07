@@ -275,7 +275,7 @@ fn the_lane_table_drops_a_leftover_road() {
     let mut found = read_edges(&stream).unwrap();
     assert_eq!(found.len(), 8);
     assert_eq!(retain_live(&mut found, &read_free_ids(&stream).unwrap()), 1);
-    assert_eq!(retain_laned(&mut found, &lanes), 1, "the piece apart");
+    assert_eq!(retain_laned(&mut found, &lanes), Ok(1), "the piece apart");
     assert!(
         found.iter().any(|e| (e.a, e.b) == (104, n1)),
         "the stub stays"
@@ -331,7 +331,7 @@ fn a_loose_industry_stub_goes_unless_an_industry_model_is_near() {
     assert_eq!(retain_live(&mut found, &read_free_ids(&stream).unwrap()), 1);
     assert_eq!(
         retain_laned(&mut found, &read_lane_ids(&stream).unwrap()),
-        0
+        Ok(0)
     );
 
     let table = read_model_table(&stream).unwrap();
