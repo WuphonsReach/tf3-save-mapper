@@ -6,8 +6,8 @@ use std::collections::HashMap;
 
 use common::{
     BOATHOUSE_MODEL, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
-    FREE_RUN_START, FREE_TAIL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT, STRIP_ID, STRIP_ROWS,
-    TRACK_LANES, UNLANED_NODES,
+    FREE_RUN_START, FREE_TAIL, HANGAR_AT, HANGAR_MODEL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT,
+    STRIP_ID, STRIP_ROWS, TRACK_LANES, UNLANED_NODES,
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
@@ -16,7 +16,7 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
     read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
-    retain_laned, retain_live, write_png, write_svg,
+    retain_laned, retain_live, retain_near_industries, write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -207,14 +207,20 @@ fn the_farm_is_found_by_its_main_model() {
     let table = read_model_table(&stream).unwrap();
     assert_eq!(table.paths[&900], "assets/some_mod/barn.mdl");
     let found = read_instances(&stream, &table, &["industries/"]);
-    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found.len(), 2, "{found:?}");
     let farm = &found[0];
     assert_eq!(
         (farm.x, farm.y),
         (f64::from(FARM_AT.0), f64::from(FARM_AT.1))
     );
     assert!((farm.fx - 0.6).abs() < 1e-6 && (farm.fy - 0.8).abs() < 1e-6);
-    assert_eq!(industry_models(&table, &found)[&farm.model], "farm");
+    let mains = industry_models(&table, &found);
+    assert_eq!(mains[&farm.model], "farm");
+    assert_eq!(found[1].model, HANGAR_MODEL);
+    assert!(
+        !mains.contains_key(HANGAR_MODEL),
+        "a piece of another industry is no main model"
+    );
 }
 
 #[test]
@@ -275,6 +281,76 @@ fn the_lane_table_drops_a_leftover_road() {
     );
 }
 
+/// An industry's entrance stub from `(x, y)`: two frontage pieces east, and
+/// the entrance north from between them. Every node has lanes.
+fn entrance_stub(first: u32, x: f32, y: f32) -> Vec<EdgeSpec> {
+    let frontage = "street/country/ind_country_old_small";
+    vec![
+        EdgeSpec {
+            a: first,
+            b: first + 1,
+            p0: [x, y, 60.0],
+            p1: [x + 60.0, y, 60.0],
+            template: frontage,
+            ..EdgeSpec::default()
+        },
+        EdgeSpec {
+            a: first + 1,
+            b: first + 2,
+            p0: [x + 60.0, y, 60.0],
+            p1: [x + 120.0, y, 60.0],
+            template: frontage,
+            ..EdgeSpec::default()
+        },
+        EdgeSpec {
+            a: first + 1,
+            b: first + 3,
+            p0: [x + 60.0, y, 60.0],
+            p1: [x + 60.0, y + 12.0, 60.0],
+            template: "street/constructions/ind_entrance_old_country",
+            ..EdgeSpec::default()
+        },
+    ]
+}
+
+#[test]
+fn a_loose_industry_stub_goes_unless_an_industry_model_is_near() {
+    let mut specs = edges();
+    // One stub before the mod industry's hangar, which is no main model, and
+    // one with no industry near: both pass the free-id list and the lanes.
+    specs.extend(entrance_stub(
+        0x7100,
+        HANGAR_AT.0 - 60.0,
+        HANGAR_AT.1 - 40.0,
+    ));
+    specs.extend(entrance_stub(0x7200, 200.0, -500.0));
+    let stream = common::stream(&specs);
+    let mut found = read_edges(&stream).unwrap();
+    assert_eq!(found.len(), 12);
+    assert_eq!(retain_live(&mut found, &read_free_ids(&stream).unwrap()), 1);
+    assert_eq!(
+        retain_laned(&mut found, &read_lane_ids(&stream).unwrap()),
+        0
+    );
+
+    let table = read_model_table(&stream).unwrap();
+    let models: Vec<(f64, f64)> = read_instances(&stream, &table, &["industries/"])
+        .iter()
+        .map(|i| (i.x, i.y))
+        .collect();
+    assert_eq!(models.len(), 2, "the farm and the hangar");
+    assert_eq!(retain_near_industries(&mut found, &models), 3);
+    assert!(
+        found.iter().all(|e| e.a / 0x100 != 0x72),
+        "the far stub goes"
+    );
+    assert_eq!(found.iter().filter(|e| e.a / 0x100 == 0x71).count(), 3);
+    assert!(
+        found.iter().any(|e| e.type_name() == "industry"),
+        "a siding joined to the network stays"
+    );
+}
+
 #[test]
 fn a_save_file_goes_all_the_way_to_an_svg() {
     let file = common::sav(&common::stream(&edges()));
@@ -290,7 +366,7 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
         terrain: Some(read_terrain(&stream).unwrap()),
         industries: instances
             .iter()
-            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
             .collect(),
         ..Layers::default()
     };
@@ -358,7 +434,7 @@ fn render(options: &SvgOptions) -> String {
         terrain: Some(read_terrain(&stream).unwrap()),
         industries: instances
             .iter()
-            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
             .collect(),
         ..Layers::default()
     };
@@ -1236,7 +1312,7 @@ fn every_layer_is_marked_as_one_and_no_item_group_is() {
         terrain: Some(read_terrain(&stream).unwrap()),
         industries: industries
             .iter()
-            .map(|i| (i.clone(), mains[&i.model].clone()))
+            .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
             .collect(),
         depots: depots.clone(),
         coverage: depots,
