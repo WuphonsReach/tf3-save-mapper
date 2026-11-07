@@ -13,10 +13,9 @@ use tf3_save_mapper_core::svg::{
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
-    industry_footprints, industry_models, read_edges, read_free_ids, read_header, read_instances,
-    read_lane_ids, read_model_table, read_strips, read_terrain, retain_laned, retain_live,
-    retain_near_industries, retain_outside_footprints, retain_without_sidings, write_png,
-    write_svg,
+    industry_models, read_edges, read_free_ids, read_header, read_instances, read_lane_ids,
+    read_model_table, read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
+    retain_without_sidings, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -70,9 +69,9 @@ Options:
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
       --keep-dead     also draw edges the game deleted or no longer uses: an end node in the free-id
-                      list, neither end in the lane table, or a short group of industry road and
-                      track joined to nothing and over 200 m from every industry (what a removed
-                      industry leaves)
+                      list, neither end in the lane table, or a short group of industry road
+                      joined to nothing and over 200 m from every industry (what a removed
+                      industry leaves); industry sidings stay out
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
@@ -536,18 +535,9 @@ fn run(args: Args) -> Result<(), Failure> {
     }
 
     let (mut layers, industry_points) = read_layers(&args, &stream, &header)?;
-    if let Some(models) = industry_points {
-        dropped += retain_near_industries(&mut edges, &models);
-    } else if !args.keep_dead {
-        eprintln!("model table not read: loose industry pieces are drawn");
-    }
-    // An industry's own sidings, and its roads inside it: the footprint stands
-    // for them.
-    let inside = retain_without_sidings(&mut edges)
-        + retain_outside_footprints(
-            &mut edges,
-            &industry_footprints(&layers.industries, &layers.industry_faces),
-        );
+    dropped += drop_loose(&mut edges, industry_points.as_deref(), args.keep_dead);
+    // The industries' own sidings: the footprint stands for them.
+    let sidings = retain_without_sidings(&mut edges);
     let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
     let unread = edges.iter().filter(|e| e.width.is_none()).count();
     if unread > 0 {
@@ -578,8 +568,8 @@ fn run(args: Args) -> Result<(), Failure> {
         extra += &format!(", {} vehicles", layers.vehicles.len());
     }
     eprintln!(
-        "{} road edges, {} track edges ({dropped} deleted ones and {inside} of industries' own \
-         left out), {} industries, \
+        "{} road edges, {} track edges ({dropped} deleted ones and {sidings} industry \
+         sidings left out), {} industries, \
          {} depots, {} station pieces{extra}; wrote {}",
         edges.len() - tracks,
         tracks,
@@ -594,6 +584,25 @@ fn run(args: Args) -> Result<(), Failure> {
         args.output.display()
     );
     Ok(())
+}
+
+/// Leave out the loose industry pieces, measured from `models` (the x, y of
+/// every `industries/` model, `None` when not read). With no model to measure
+/// from every group would count as loose, so none is dropped and a note says
+/// so. Returns how many were left out.
+fn drop_loose(edges: &mut Vec<Edge>, models: Option<&[(f64, f64)]>, keep_dead: bool) -> usize {
+    match models {
+        Some(m) if !m.is_empty() => retain_near_industries(edges, m),
+        Some(_) => {
+            eprintln!("no industry models found: loose industry pieces are drawn");
+            0
+        }
+        None if !keep_dead => {
+            eprintln!("model table not read: loose industry pieces are drawn");
+            0
+        }
+        None => 0,
+    }
 }
 
 /// The terrain, and the industries, depots and stations with what the game
@@ -745,9 +754,20 @@ fn read_layers(
                 }
             }
             if args.coverage {
+                // Only a kind whose radius was read gets a circle.
+                let has_radius = |k: &install::DepotKind| {
+                    layers
+                        .depot_specs
+                        .get(k.id)
+                        .is_some_and(|s| s.radius.is_some())
+                };
                 layers.coverage = rows
                     .iter()
-                    .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
+                    .filter(|i| {
+                        DEPOT_KINDS
+                            .iter()
+                            .any(|k| k.model == i.model && has_radius(k))
+                    })
                     .cloned()
                     .collect();
             }
@@ -1323,5 +1343,31 @@ mod tests {
         );
         assert!(temp_files(&dir).is_empty(), "no temp file is left");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn with_no_industry_model_no_loose_piece_is_dropped() {
+        // A short industry road joined to nothing, far from (0, 0).
+        let stub = || {
+            vec![Edge {
+                a: 1,
+                b: 2,
+                p0: [5000.0, 0.0, 0.0],
+                p1: [5050.0, 0.0, 0.0],
+                t0: [50.0, 0.0, 0.0],
+                t1: [50.0, 0.0, 0.0],
+                template: Some("street/country/ind_country_old_small".into()),
+                family: Family::Street,
+                width: Some(8.0),
+                offset: 0,
+            }]
+        };
+        let mut edges = stub();
+        assert_eq!(drop_loose(&mut edges, Some(&[(0.0, 0.0)]), false), 1);
+        for (models, keep_dead) in [(Some(&[][..]), false), (None, false), (None, true)] {
+            let mut edges = stub();
+            assert_eq!(drop_loose(&mut edges, models, keep_dead), 0);
+            assert_eq!(edges.len(), 1);
+        }
     }
 }
