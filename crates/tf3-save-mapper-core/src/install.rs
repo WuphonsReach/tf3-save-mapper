@@ -1,6 +1,7 @@
 //! Facts read from the player's own game install at run time: the ground
 //! faces of depots and industries and the boxes of station pieces, and from
-//! the mods folder the scripts of a mod's depots. Nothing read here is
+//! the mods folder the scripts of a mod's depots and the boxes of the pieces
+//! a modular one is built from. Nothing read here is
 //! stored in the tool or written into the picture beyond the shapes drawn
 //! from it.
 //!
@@ -95,10 +96,10 @@ impl Mods {
         (!dirs.is_empty()).then_some(Mods { dirs })
     }
 
-    /// The text of the file at `rel` in the first mod folder that has it:
-    /// the mods folders in turn, and each one's mod folders by name. A file
-    /// over `MAX_MOD_SCRIPT` bytes counts as missing.
-    fn script(&self, rel: &str) -> Option<String> {
+    /// The text of the file at `rel` (a script or a model file) in the first
+    /// mod folder that has it: the mods folders in turn, and each one's mod
+    /// folders by name. A file over `MAX_MOD_SCRIPT` bytes counts as missing.
+    fn text(&self, rel: &str) -> Option<String> {
         self.dirs.iter().find_map(|dir| {
             let mut mods: Vec<String> = std::fs::read_dir(dir)
                 .ok()?
@@ -178,6 +179,15 @@ fn library_folders(root: &Path) -> Vec<PathBuf> {
 /// archive is a mod's: its script is the file at `script` in the mod's
 /// folder, and a dot stands for a building whose script has no ground face.
 /// A kind with an `outline` is drawn with it in place of the script's face.
+///
+/// A mod's depot built from many models (a modular construction, whose
+/// script works its ground faces out as it runs) names them: `pieces` are
+/// drawn as their model's box, `rings` (pieces laid round their origin, a
+/// turntable's) as one disc per origin out to their box's far end. Both are
+/// file names without `.mdl` in `model`'s folder, read from the mods folder.
+/// `model` is then the one piece each depot has, at its catchment's centre:
+/// it carries the coverage circle, and the dot when the mods folder is not
+/// found.
 pub struct DepotKind {
     pub id: &'static str,
     pub label: &'static str,
@@ -186,6 +196,40 @@ pub struct DepotKind {
     pub model: &'static str,
     pub fill: &'static str,
     pub outline: Option<&'static [(f64, f64)]>,
+    pub pieces: &'static [&'static str],
+    pub rings: &'static [&'static str],
+}
+
+/// What a model is to a depot kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PieceRole {
+    Piece,
+    Ring,
+}
+
+impl DepotKind {
+    /// Whether the kind is drawn from its pieces.
+    pub fn has_pieces(&self) -> bool {
+        !self.pieces.is_empty() || !self.rings.is_empty()
+    }
+
+    /// What `model` is to this kind, if one of its pieces or rings.
+    pub fn role(&self, model: &str) -> Option<PieceRole> {
+        let folder = &self.model[..self.model.rfind('/')? + 1];
+        let name = model.strip_prefix(folder)?.strip_suffix(".mdl")?;
+        if self.pieces.contains(&name) {
+            Some(PieceRole::Piece)
+        } else if self.rings.contains(&name) {
+            Some(PieceRole::Ring)
+        } else {
+            None
+        }
+    }
+
+    /// Whether instances of `model` belong to this kind's layer.
+    pub fn draws(&self, model: &str) -> bool {
+        model == self.model || self.role(model).is_some()
+    }
 }
 
 /// The road depot's lot in its own axes, measured by us from screenshots
@@ -219,6 +263,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/road/road_maint_station/road_maint_station.mdl",
         fill: "#969696",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "road-depots",
@@ -228,6 +274,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/road/road_depot/road_depot.mdl",
         fill: "#b4b4b4",
         outline: Some(ROAD_DEPOT_LOT),
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "tram-depots",
@@ -237,6 +285,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/road/tram_depot/tram_depot.mdl",
         fill: "#f2f2f2",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "rail-maintenance-buildings",
@@ -246,6 +296,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/rail/rail_maint_station/rail_maint_station.mdl",
         fill: "#464646",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "rail-depots",
@@ -255,6 +307,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/rail/rail_depot.mdl",
         fill: "#646464",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "ship-maintenance-buildings",
@@ -264,6 +318,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/water/water_maint_station/water_maint_station.mdl",
         fill: "#4d2d12",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "ship-depots",
@@ -273,6 +329,8 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "depots/water/water_depot.mdl",
         fill: "#7b4a24",
         outline: None,
+        pieces: &[],
+        rings: &[],
     },
     DepotKind {
         id: "boathouses",
@@ -282,6 +340,78 @@ pub const DEPOT_KINDS: &[DepotKind] = &[
         model: "assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl",
         fill: "#7b4a24",
         outline: None,
+        pieces: &[],
+        rings: &[],
+    },
+    // The turntable pit is the centre; the stalls' sheds and open stands are
+    // each laid out from it at their own heading. Doors, wires, catenary,
+    // stairs and the track pieces are left out.
+    DepotKind {
+        id: "roundhouses",
+        label: "Roundhouses (Roundhouse mod)",
+        archive: None,
+        script: "content/depots/rail/ringlokschuppen/mav2002_roundhouse_mod.script.lua",
+        model: "depots/rail/ringlokschuppen/mav2002_rl_wanne.mdl",
+        fill: "#646464",
+        outline: None,
+        pieces: &[
+            "mav2002_rl_building_l1",
+            "mav2002_rl_building_l2",
+            "mav2002_rl_building_m1",
+            "mav2002_rl_building_r1",
+            "mav2002_rl_building_r2",
+            "mav2002_rl_building_s1",
+            "mav2002_rl_building_sl1",
+            "mav2002_rl_building_sr1",
+            "mav2002_rl_open_l1",
+            "mav2002_rl_open_l2",
+            "mav2002_rl_open_l3",
+            "mav2002_rl_open_m1",
+            "mav2002_rl_open_m2",
+            "mav2002_rl_open_r1",
+            "mav2002_rl_open_r2",
+            "mav2002_rl_open_r3",
+            "mav2002_rl_open_s1",
+            "mav2002_rl_addon_l1",
+            "mav2002_rl_addon_r1",
+            "mav2002_rl_chimney",
+        ],
+        rings: &["mav2002_rl_seg", "mav2002_rl_seg_track"],
+    },
+    // The first track's front door marks the construction's origin, where
+    // its first depot's catchment is centred; it has up to four depots, one
+    // per track. The halls (front, middle, rear) and the side building's
+    // ground pieces are drawn; doors, logos and hit boxes are not.
+    DepotKind {
+        id: "modern-depots",
+        label: "Modern depots (Modern Depot mod)",
+        archive: None,
+        script: "content/depots/rail/depot_modern/maikc_depot_modern.script.lua",
+        model: "depots/rail/depot_modern/maikc_depot_modern_f1_tuer.mdl",
+        fill: "#646464",
+        outline: None,
+        pieces: &[
+            "maikc_depot_modern_f1",
+            "maikc_depot_modern_f2",
+            "maikc_depot_modern_f3",
+            "maikc_depot_modern_m1",
+            "maikc_depot_modern_m2",
+            "maikc_depot_modern_m3",
+            "maikc_depot_modern_m4",
+            "maikc_depot_modern_r1",
+            "maikc_depot_modern_r2",
+            "maikc_depot_modern_r3",
+            "maikc_depot_modern_g1",
+            "maikc_depot_modern_g2",
+            "maikc_depot_modern_g3",
+            "maikc_depot_modern_g4",
+            "maikc_depot_modern_g5",
+            "maikc_depot_modern_g6",
+            "maikc_depot_modern_g7",
+            "maikc_depot_modern_g8",
+            "maikc_depot_modern_g9",
+        ],
+        rings: &[],
     },
 ];
 
@@ -321,8 +451,16 @@ pub fn depot_specs(
                     .map(|spec| with_outline(spec, kind.outline))
             }
             None => mods
-                .and_then(|m| m.script(kind.script))
-                .and_then(|text| parse_mod_depot(&text)),
+                .and_then(|m| m.text(kind.script))
+                .and_then(|text| parse_mod_depot(&text))
+                .map(|mut spec| {
+                    // Its pieces are its footprint.
+                    if kind.has_pieces() {
+                        spec.face.clear();
+                        spec.boxes.clear();
+                    }
+                    spec
+                }),
         };
         if let Some(spec) = spec {
             out.insert(kind.id, spec);
@@ -643,7 +781,38 @@ fn is_edge_piece(member: &str, folder: &str, base: &str) -> bool {
         && !rest.contains('/')
 }
 
-/// (x0, y0, x1, y1) from the last `bbMin` and `bbMax` of a model file.
+/// The box of each depot piece and ring among `models` (model paths, as
+/// instances name them), by model path: the box of its model file, which is
+/// `content/` and the path in the mod's folder. A piece whose file is not
+/// found is left out.
+pub fn depot_piece_boxes<'a>(
+    mods: &Mods,
+    models: impl IntoIterator<Item = &'a str>,
+) -> HashMap<String, Rect> {
+    let mut out = HashMap::new();
+    for model in models {
+        if out.contains_key(model)
+            || !DEPOT_KINDS
+                .iter()
+                .any(|k| k.archive.is_none() && k.role(model).is_some())
+        {
+            continue;
+        }
+        if let Some(b) = mods
+            .text(&format!("content/{model}"))
+            .as_deref()
+            .and_then(bounding_box)
+            && b.0 < b.2
+            && b.1 < b.3
+        {
+            out.insert(model.to_owned(), b);
+        }
+    }
+    out
+}
+
+/// (x0, y0, x1, y1) from the last `bbMin` and `bbMax` of a model file, each
+/// pair in order (a mod's file can give a minimum above its maximum).
 fn bounding_box(text: &str) -> Option<Rect> {
     let last_pair = |key: &str| {
         text.match_indices(key)
@@ -658,7 +827,12 @@ fn bounding_box(text: &str) -> Option<Rect> {
             .last()
     };
     let (min, max) = (last_pair("bbMin")?, last_pair("bbMax")?);
-    Some((min.0, min.1, max.0, max.1))
+    Some((
+        min.0.min(max.0),
+        min.1.min(max.1),
+        min.0.max(max.0),
+        min.1.max(max.1),
+    ))
 }
 
 /// The ground face of each industry whose script declares one, by industry
@@ -921,6 +1095,92 @@ mod tests {
         std::fs::remove_dir_all(&mods).unwrap();
     }
 
+    fn kind(id: &str) -> &'static DepotKind {
+        DEPOT_KINDS.iter().find(|k| k.id == id).unwrap()
+    }
+
+    #[test]
+    fn a_depot_built_from_pieces_names_them() {
+        let roundhouse = kind("roundhouses");
+        let folder = "depots/rail/ringlokschuppen/";
+        assert!(roundhouse.has_pieces() && !kind("rail-depots").has_pieces());
+        assert_eq!(
+            roundhouse.role(&format!("{folder}mav2002_rl_building_m1.mdl")),
+            Some(PieceRole::Piece)
+        );
+        assert_eq!(
+            roundhouse.role(&format!("{folder}mav2002_rl_seg_track.mdl")),
+            Some(PieceRole::Ring)
+        );
+        // Doors, wires and the centre piece itself are no pieces.
+        for other in [
+            "mav2002_rl_doors_c",
+            "mav2002_rl_fahrdraht",
+            "mav2002_rl_wanne",
+        ] {
+            assert_eq!(roundhouse.role(&format!("{folder}{other}.mdl")), None);
+        }
+        assert!(roundhouse.draws(roundhouse.model));
+        assert!(!roundhouse.draws("depots/rail/other/mav2002_rl_building_m1.mdl"));
+        // The modern depot's hit box and doors are not drawn.
+        let modern = kind("modern-depots");
+        assert!(
+            modern
+                .role("depots/rail/depot_modern/maikc_depot_modern_m1.mdl")
+                .is_some()
+        );
+        assert!(
+            modern
+                .role("depots/rail/depot_modern/maikc_depot_modern_module_hitbox.mdl")
+                .is_none()
+        );
+        assert!(
+            modern
+                .role("depots/rail/depot_modern/maikc_depot_modern_r1_tuer.mdl")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn piece_boxes_and_a_pieced_depots_spec_read_from_the_mods_folder() {
+        let mods = temp_folder("pieces");
+        let roundhouse = kind("roundhouses");
+        let shed = "depots/rail/ringlokschuppen/mav2002_rl_building_m1.mdl";
+        let ring = "depots/rail/ringlokschuppen/mav2002_rl_seg.mdl";
+        let door = "depots/rail/ringlokschuppen/mav2002_rl_doors_c.mdl";
+        let flat = "depots/rail/ringlokschuppen/mav2002_rl_open_m1.mdl";
+        let mdl = |min: (f64, f64), max: (f64, f64)| {
+            format!(
+                "boundingInfo = {{ bbMax = {{ {}, {}, 1, }}, bbMin = {{ {}, {}, 0, }}, }},",
+                max.0, max.1, min.0, min.1
+            )
+        };
+        let root = mods.join("5000").join("content");
+        write(&root.join(shed), &mdl((28.7, -6.8), (69.0, 6.8)));
+        // A minimum above the maximum, as one mod's file has.
+        write(&root.join(ring), &mdl((17.6, 1.7), (13.0, -1.7)));
+        write(&root.join(door), &mdl((39.0, -2.2), (39.2, 2.2)));
+        write(&root.join(flat), &mdl((1.0, 0.0), (1.0, 5.0)));
+        write(
+            &mods.join("5000").join(roundhouse.script),
+            "groundFaces = {}\nmainSubconstruction.depot = { transportModes = { \"TRAIN\", }, \
+             catchmentArea = { radius = 800, }, maintenancePool = 1, }",
+        );
+        let found = Mods::find(Some(&mods)).unwrap();
+        let boxes = depot_piece_boxes(&found, [shed, ring, door, flat, shed]);
+        assert_eq!(
+            boxes.len(),
+            2,
+            "the door is no piece; a box with no area is left out"
+        );
+        assert_eq!(boxes[shed], (28.7, -6.8, 69.0, 6.8));
+        assert_eq!(boxes[ring], (13.0, -1.7, 17.6, 1.7));
+        let spec = &depot_specs(None, Some(&found))[roundhouse.id];
+        assert!(spec.face.is_empty());
+        assert_eq!((spec.radius, spec.pool), (Some(800), 1));
+        std::fs::remove_dir_all(&mods).unwrap();
+    }
+
     #[test]
     fn the_mods_folder_sits_beside_the_steam_folder() {
         let home = temp_folder("home").canonicalize().unwrap();
@@ -940,6 +1200,8 @@ mod tests {
         let mdl = "boundingInfo = {\n bbMax = { 1, 2, 3 },\n bbMin = { -1, -2, -3 },\n},\n\
                    boundingInfo = {\n bbMax = { 12.5, 4, 3, },\n bbMin = { -12.5, -4.25, 0, },\n},";
         assert_eq!(bounding_box(mdl), Some((-12.5, -4.25, 12.5, 4.0)));
+        let swapped = "bbMin = { 0, 0, 0 }, bbMax = { -30.5, -13, 4 },";
+        assert_eq!(bounding_box(swapped), Some((-30.5, -13.0, 0.0, 0.0)));
         assert_eq!(bounding_box("bbMax = { 1, 2 }"), None);
     }
 

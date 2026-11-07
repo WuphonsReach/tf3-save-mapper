@@ -9,8 +9,8 @@ Where an entry says how many saves something is in, the count is from a model co
 ## In short
 
 - **Never drawn, readable today:** airports, freight terminal platforms (rail and truck), warehouses, landmarks and company headquarters, street station side buildings `_s1`. Aircraft are drawn, but as a car-sized grey shape.
-- **Drawn wrong:** roads and tracks in tunnels are drawn as if they ran over the ground; runways and taxiways are drawn as roads; road ends are round where the game's are flat.
-- **Mod depots:** the roundhouse, modern depot, buffer-stop depot and a Chinese EMU depot mod are not drawn.
+- **Drawn wrong:** roads and tracks in tunnels are drawn as if they ran over the ground; runways and taxiways are drawn as roads; one save's rows of model records at the map's centre are drawn as depots; road ends are round where the game's are flat.
+- **Mod depots:** the buffer-stop depot and a Chinese EMU depot mod are not drawn.
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
 - **Possible layers** the notes make room for: speed limits, electrified track, tram streets, parcel cells, lot tint, terrain changes between two saves, sunrise and sunset on the rose.
@@ -29,15 +29,15 @@ Where an entry says how many saves something is in, the count is from a model co
 
 - **Roads and tracks in tunnels** An edge in a tunnel is drawn like any other, over the terrain, so a railway seems to cross a mountain. The tunnel pieces are model instances (`infrastructure/tunnel/a_car/`, `a_rail/`, `b_car/`, `b_rail/`, in 6 to 7 of the 8 saves) and bridges have theirs (`infrastructure/bridge/*`). How a tunnel or bridge attaches to its edge has not been read (`road-network.md`). Needs: either that link from the format side, or the edges matched to the tunnel pieces by position; then a dashed or faded style for tunnels.
 - **Runways and taxiways drawn as roads** Their edges are street edges with their own lane modes (`0xa00` and `0x800`, `road-network.md`) and no vehicle lanes (`street-templates.md`), and they fall into the roads layer. Needs: their own sublayer and style once the airport layer exists.
+- **Model catalogue rows at the map's centre** One of the 8 saves (6487589) holds rows of instances within 130 m of the origin, one per model: every base depot and maintenance building, `_sm` twins, the mod depots' pieces, cars. Each row runs along x in steps of about 0.55 m, at y -2.2 or 7.2, with facings that are not unit vectors (0.73, 2.22, 9.40, or none). They look like records the game or a mod keeps for its models, not buildings: in the other 7 saves no depot lies there. `tf3map` draws them, so that save shows 22 depots and their coverage circles piled up at the centre (and, with the mods folder, two roundhouses and a modern depot). Needs: what these records are, from the format side, or a rule that leaves out instances whose facing is far from unit length (all 1408 depot pieces seen on the map away from these rows, in 24 saves, have a unit facing to two decimals; 158 of the 183 in the rows do not).
 - **Road ends** A road that stops is drawn with a round cap (`stroke-linecap="round"` on every road sublayer); the game ends it flat (noted in tf3-save-format's shot-place skill). Needs: a flat cap where an end node has one edge, without opening gaps at junctions, where the round cap hides the seams.
 
 ## Mod depots
 
-- **Roundhouse and modern depot** `depots/rail/ringlokschuppen/*` (mod.io 5692570, `maverick2002_ringlokschuppen` in 67 mined saves) and `depots/rail/depot_modern/maikc_depot_modern_*` (mod.io 6334300, in 81). The roundhouse's catchment is 800 m (`depots.md`). Both are built from many pieces. The 20 turntable stalls are track edges round a centre; the ring itself is not in the edge table (`road-network.md`).
-- **Buffer-stop depot** `grimes_prellbockdepot` sets pool 1 and a 1 m catchment (`depots.md`).
-- **A road depot mod** `depots/road/road_depot/uep3_b04_crh_emu_*`, a Chinese EMU depot built over the base road depot's folder, seen in one of the 8 saves.
+The roundhouse and the modern depot are drawn from their pieces' model boxes (`install::DEPOT_KINDS`). Their scripts work out their ground faces as they run, so the faces cannot be read the way the boathouse's radius is. Two kinds are still left out:
 
-Needs, for each: the mod's script read from the mods folder for its ground face and radius, as for the boathouse (`--mods`).
+- **Buffer-stop depot** `grimes_prellbockdepot` (mod.io 5713333) sets pool 1 and a 1 m catchment (`depots.md`). Its one model is `content/rail/bumper_depot.mdl` in the mod's folder, with no ground face, so it would be a dot like the boathouse. The mod was enabled in 41 mined saves, but none of the 9 of those scanned had one built, so how a save names the model is unchecked. Needs: a save with one, to confirm the model path.
+- **A road depot mod** `depots/road/road_depot/uep3_b04_crh_emu_*` (mod.io 6008076), a Chinese EMU depot built over the base road depot's folder, seen in one of the 8 saves (6487589). It is a train station with four depots: the script makes a station with three terminals and a 300 m catchment, plus four depot sub-constructions, one per gate. Its main model is `uep3_b04_crh_emu_depot_170m` or `_330m`, a box 170 or 324 m long. That save has one built (at about -607, -3434); its other four main-model instances are in the catalogue rows at the map's centre (under Drawn wrong). Needs: a kind with both main models as centre pieces, the station's catchment or the depots' for the coverage circle, and a screenshot to check the box.
 
 ## Mod industries
 

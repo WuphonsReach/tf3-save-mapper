@@ -203,6 +203,8 @@ pub struct Layers {
     pub coverage: Vec<Instance>,
     /// Depot footprints by layer id (`install::DEPOT_KINDS`).
     pub depot_specs: HashMap<&'static str, DepotSpec>,
+    /// The boxes of mod depots' pieces by model path (`install::depot_piece_boxes`).
+    pub depot_boxes: HashMap<String, Rect>,
     pub stations: Vec<Instance>,
     /// Station piece boxes by model path.
     pub station_boxes: HashMap<String, Rect>,
@@ -506,7 +508,13 @@ pub fn write_svg(
     write_network(out, &picture, &edges, edge_ids, options)?;
     write_lines(
         out,
-        &depots::layers(&picture, &depot_rows, &layers.depot_specs, cut),
+        &depots::layers(
+            &picture,
+            &depot_rows,
+            &layers.depot_specs,
+            &layers.depot_boxes,
+            cut,
+        ),
     )?;
     write_lines(out, &stations_over)?;
     write_lines(

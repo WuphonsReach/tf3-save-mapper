@@ -40,7 +40,8 @@ Options:
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
                       depots, stations and industries (default: the usual Steam folders)
       --mods DIR      the mod.io game's mods folder (the one holding a folder per mod), read for the
-                      catchment of a mod's depots (default: the usual places beside the Steam folders)
+                      catchment of a mod's depots and the pieces of its roundhouses and modern depots
+                      (default: the usual places beside the Steam folders)
       --contour M     metres between height lines and height bands (default 20; vector terrain)
       --no-bands      leave out the coloured height bands (vector terrain)
       --no-terrain    leave out the terrain
@@ -574,7 +575,12 @@ fn run(args: Args) -> Result<(), Failure> {
         edges.len() - tracks,
         tracks,
         layers.industries.len(),
-        layers.depots.len(),
+        // A depot built from pieces counts once, by its centre piece.
+        layers
+            .depots
+            .iter()
+            .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
+            .count(),
         layers.stations.len(),
         args.output.display()
     );
@@ -689,27 +695,52 @@ fn read_layers(
             layers.depot_specs = install::depot_specs(Some(game), mods.as_ref());
             let rows: Vec<Instance> = instances
                 .iter()
-                .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
+                .filter(|i| DEPOT_KINDS.iter().any(|k| k.draws(&i.model)))
                 .cloned()
                 .collect();
-            let unread = rows
-                .iter()
-                .filter(|i| {
-                    DEPOT_KINDS.iter().any(|k| {
-                        k.archive.is_none()
-                            && k.model == i.model
-                            && !layers.depot_specs.contains_key(k.id)
-                    })
-                })
-                .count();
-            if unread > 0 {
-                eprintln!(
-                    "{unread} mod depots drawn as dots without their catchment: their mod's \
-                     script was not found (try --mods DIR)"
-                );
+            if let Some(mods) = &mods {
+                layers.depot_boxes =
+                    install::depot_piece_boxes(mods, rows.iter().map(|i| i.model.as_str()));
+            }
+            let mod_kind = |i: &Instance| {
+                DEPOT_KINDS
+                    .iter()
+                    .find(|k| k.archive.is_none() && k.model == i.model)
+            };
+            // Each mod depot whose script or pieces' models were not read, by
+            // (no catchment, drawn as a dot); a boathouse is always a dot.
+            let mut missing: HashMap<(bool, bool), usize> = HashMap::new();
+            for k in rows.iter().filter_map(mod_kind) {
+                let no_spec = !layers.depot_specs.contains_key(k.id);
+                let no_pieces = k.has_pieces()
+                    && !rows.iter().any(|i| {
+                        k.role(&i.model).is_some() && layers.depot_boxes.contains_key(&i.model)
+                    });
+                if no_spec || no_pieces {
+                    let dot = no_pieces || !k.has_pieces();
+                    *missing.entry((no_spec, dot)).or_default() += 1;
+                }
+            }
+            for ((no_spec, no_pieces), n) in [(true, false), (true, true), (false, true)]
+                .map(|key| (key, missing.get(&key).copied().unwrap_or(0)))
+            {
+                let (what, files) = match (no_spec, no_pieces) {
+                    (true, false) => ("without their catchment", "script was"),
+                    (true, true) => ("as dots without their catchment", "files were"),
+                    _ => ("as dots", "pieces' models were"),
+                };
+                if n > 0 {
+                    eprintln!(
+                        "{n} mod depots drawn {what}: their mod's {files} not found (try --mods DIR)"
+                    );
+                }
             }
             if args.coverage {
-                layers.coverage = rows.clone();
+                layers.coverage = rows
+                    .iter()
+                    .filter(|i| DEPOT_KINDS.iter().any(|k| k.model == i.model))
+                    .cloned()
+                    .collect();
             }
             if args.depots {
                 layers.depots = rows;
