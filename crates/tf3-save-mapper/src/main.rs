@@ -14,7 +14,8 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
     industry_models, read_edges, read_free_ids, read_header, read_instances, read_lane_ids,
-    read_model_table, read_strips, read_terrain, retain_laned, retain_live, write_png, write_svg,
+    read_model_table, read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
+    write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -67,7 +68,9 @@ Options:
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
       --keep-dead     also draw edges the game deleted or no longer uses: an end node in the free-id
-                      list, or neither end in the lane table (what a removed industry leaves)
+                      list, neither end in the lane table, or a short group of industry road and
+                      track joined to nothing and over 200 m from every industry (what a removed
+                      industry leaves)
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
@@ -529,13 +532,18 @@ fn run(args: Args) -> Result<(), Failure> {
             None => eprintln!("lane table not found: leftover industry roads are drawn"),
         }
     }
+
+    let (mut layers, industry_points) = read_layers(&args, &stream, &header)?;
+    if let Some(models) = industry_points {
+        dropped += retain_near_industries(&mut edges, &models);
+    } else if !args.keep_dead {
+        eprintln!("model table not read: loose industry pieces are drawn");
+    }
     let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
     let unread = edges.iter().filter(|e| e.width.is_none()).count();
     if unread > 0 {
         eprintln!("{unread} edges whose lanes did not read are drawn at the fallback width");
     }
-
-    let mut layers = read_layers(&args, &stream, &header)?;
     if !args.labels.is_empty() {
         for l in unmatched_labels(&args.labels, &shown_edges(&header, &edges, &args.options)) {
             let (a, b) = (l.a.min(l.b), l.a.max(l.b));
@@ -575,8 +583,15 @@ fn run(args: Args) -> Result<(), Failure> {
 
 /// The terrain, and the industries, depots and stations with what the game
 /// install says about their shapes. A part that cannot be read is left out
-/// with a note, and the map is drawn without it.
-fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, String> {
+/// with a note, and the map is drawn without it. Unless `--keep-dead`, also
+/// the x, y of every model under `industries/`, for
+/// [`retain_near_industries`] (`None` when the model table does not read).
+type IndustryModels = Option<Vec<(f64, f64)>>;
+fn read_layers(
+    args: &Args,
+    stream: &[u8],
+    header: &Header,
+) -> Result<(Layers, IndustryModels), String> {
     let mut layers = Layers::default();
     if args.terrain {
         match read_terrain(stream) {
@@ -585,8 +600,9 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         }
     }
     let depots = args.depots || args.coverage;
-    if !(args.industries || depots || args.stations || args.vehicles) {
-        return Ok(layers);
+    let pieces = !args.keep_dead;
+    if !(args.industries || depots || args.stations || args.vehicles || pieces) {
+        return Ok((layers, None));
     }
     let wants_install = args.industries || depots || args.stations;
     let found = if wants_install {
@@ -615,11 +631,11 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         Ok(t) => t,
         Err(e) => {
             eprintln!("{e}: no industries, depots, stations or vehicles");
-            return Ok(layers);
+            return Ok((layers, None));
         }
     };
     let mut prefixes = Vec::new();
-    if args.industries {
+    if args.industries || pieces {
         prefixes.push("industries/");
     }
     if depots && game.is_some() {
@@ -632,7 +648,7 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         prefixes.push("vehicle/");
     }
     if prefixes.is_empty() {
-        return Ok(layers);
+        return Ok((layers, None));
     }
     let (half_w, half_h) = (
         f64::from(header.map_width) / 2.0 + MAP_MARGIN,
@@ -642,6 +658,13 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
         .into_iter()
         .filter(|i| i.x.abs() <= half_w && i.y.abs() <= half_h)
         .collect();
+    let industry_points = pieces.then(|| {
+        instances
+            .iter()
+            .filter(|i| i.model.starts_with("industries/"))
+            .map(|i| (i.x, i.y))
+            .collect()
+    });
 
     if args.industries {
         let mains = industry_models(&table, &instances);
@@ -701,7 +724,7 @@ fn read_layers(args: &Args, stream: &[u8], header: &Header) -> Result<Layers, St
                 .collect();
         }
     }
-    Ok(layers)
+    Ok((layers, industry_points))
 }
 
 /// True when writing to `path` would land on a `.sav`. Windows drops trailing
