@@ -12,7 +12,7 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
 - **Roads and rails** from the street edges in the save, one sublayer per street or track type. Each is as wide as its lanes, sidewalks included (a small town street 16 m, a track 4 m), and curves follow the stored bends.
 - **Stations**: the docks, platforms and buildings of water, rail and street stations, with a border round each bus, tram or cargo station and an anchor on each ship landing.
 - **Depots and maintenance buildings** for road, tram, rail and ship, one grey or brown per carrier, and, when asked for, the area each one maintains.
-- **Industries**: each industry's footprint, and a badge with its icon.
+- **Industries**: each industry's footprint, and a badge with its icon. The industry's own sidings and roads that lie wholly inside its footprint are left out of the network; its entrance road, which reaches out to the network, stays. With `--no-industries`, or with no footprint to test against (no install), they are drawn.
 - **Vehicles**, when asked for: one shape per vehicle, pointing where it faces.
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
 - A **compass rose**, in the lower right corner unless asked elsewhere.
