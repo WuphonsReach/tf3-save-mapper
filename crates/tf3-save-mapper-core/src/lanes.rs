@@ -6,8 +6,10 @@
 //! `f32`. Both edges and nodes appear as entities; along an edge or across a
 //! node the record runs from `(E, k)` to `(E, k + 1)`. Many records follow the
 //! two `f32` 1.0 with kind 2 or 3, and those are the anchors the table is found
-//! by: their densest cluster is the table, and every record within it adds its
-//! two entity ids.
+//! by: a cluster of them is the table, and every record within it adds its
+//! two entity ids. Across 381 saves the table was one cluster, its anchors at
+//! most 385 KB apart; a save whose table has a wider gap reads as two
+//! clusters, and every cluster large enough is read, so the ids are whole.
 //!
 //! A road or rail piece whose nodes have no lanes is one the game no longer
 //! routes on or draws, and that the free-id list does not catch: mostly what
@@ -32,11 +34,15 @@ const MAX_COORD: f32 = 60_000.0;
 /// A lane piece is short: a few metres, at most a long straight's subdivision.
 const MAX_PIECE: f32 = 500.0;
 const MIN_PIECE: f32 = 0.01;
-/// Anchors less than this far apart belong to one table.
+/// Anchors less than this far apart belong to one cluster.
 const CLUSTER_GAP: usize = 1 << 20;
-/// Fewer anchors than this are not taken as the table (a save of a few
-/// hundred edges has thousands).
+/// A cluster of fewer anchors than this is not part of the table (a save of
+/// a few hundred edges has thousands; the smallest table seen had 124).
 const MIN_ANCHORS: usize = 64;
+/// The lane filter is refused when it would drop more than this share of the
+/// edges: the table read is then not the table. The most seen was 15 % (a
+/// small map whose dropped streets touch no live edge).
+const MAX_DROP_SHARE: f64 = 1.0 / 3.0;
 /// Records may sit this far before the first anchor and after the last.
 const MARGIN: usize = 4096;
 
@@ -85,28 +91,30 @@ pub fn read_lane_ids(data: &[u8]) -> Option<HashSet<u32>> {
         .map(|p| p + ANCHOR_PREFIX.len())
         .filter(|&at| matches!(record_at(data, at), Some((_, _, 2 | 3))))
         .collect();
-    let mut best: Option<(usize, usize, usize)> = None; // (count, first, last)
+    // Every cluster large enough: an id read from a stray one can only keep
+    // an edge, while a part of the table left out would drop live ones.
+    let mut clusters = Vec::new(); // (first, last)
     let mut start = 0;
     for k in 1..=anchors.len() {
         if k == anchors.len() || anchors[k] - anchors[k - 1] > CLUSTER_GAP {
-            let count = k - start;
-            if best.is_none_or(|(c, _, _)| count > c) {
-                best = Some((count, anchors[start], anchors[k - 1]));
+            if k - start >= MIN_ANCHORS {
+                clusters.push((anchors[start], anchors[k - 1]));
             }
             start = k;
         }
     }
-    let (count, first, last) = best?;
-    if count < MIN_ANCHORS {
+    if clusters.is_empty() {
         return None;
     }
-    let from = first.saturating_sub(MARGIN);
-    let to = (last + RECORD_BYTES + MARGIN).min(data.len());
     let mut ids = HashSet::new();
-    for at in from..to {
-        if let Some((a, b, _)) = record_at(data, at) {
-            ids.insert(a);
-            ids.insert(b);
+    for (first, last) in clusters {
+        let from = first.saturating_sub(MARGIN);
+        let to = (last + RECORD_BYTES + MARGIN).min(data.len());
+        for at in from..to {
+            if let Some((a, b, _)) = record_at(data, at) {
+                ids.insert(a);
+                ids.insert(b);
+            }
         }
     }
     Some(ids)
@@ -114,11 +122,17 @@ pub fn read_lane_ids(data: &[u8]) -> Option<HashSet<u32>> {
 
 /// Drop the edges with neither end node in `lanes`: pieces the game no longer
 /// routes on (a removed industry's road and sidings, or a stale piece of any
-/// type). An edge with one laned end is kept. Returns how many were dropped.
-pub fn retain_laned(edges: &mut Vec<Edge>, lanes: &HashSet<u32>) -> usize {
-    let before = edges.len();
-    edges.retain(|e| lanes.contains(&e.a) || lanes.contains(&e.b));
-    before - edges.len()
+/// type). An edge with one laned end is kept. Returns how many were dropped,
+/// or `Err` with that number, dropping nothing, when it is more than a third
+/// of the edges ([`MAX_DROP_SHARE`]): the ids read are then not the table's.
+pub fn retain_laned(edges: &mut Vec<Edge>, lanes: &HashSet<u32>) -> Result<usize, usize> {
+    let laned = |e: &Edge| lanes.contains(&e.a) || lanes.contains(&e.b);
+    let unlaned = edges.iter().filter(|e| !laned(e)).count();
+    if unlaned as f64 > MAX_DROP_SHARE * edges.len() as f64 {
+        return Err(unlaned);
+    }
+    edges.retain(laned);
+    Ok(unlaned)
 }
 
 #[cfg(test)]
@@ -172,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn the_table_is_the_densest_cluster_of_anchors() {
+    fn a_small_stray_cluster_is_not_the_table() {
         let ids: Vec<u32> = (0..100).map(|n| 20_000 + 7 * n).collect();
         let mut data = table(&[900_001, 900_002]); // a stray cluster, too small
         data.extend(vec![0u8; CLUSTER_GAP + 1]);
@@ -202,11 +216,25 @@ mod tests {
         };
         let mut edges = vec![edge(1, 2), edge(2, 3), edge(3, 4)];
         let lanes: HashSet<u32> = [1, 2].into();
-        assert_eq!(retain_laned(&mut edges, &lanes), 1);
+        assert_eq!(retain_laned(&mut edges, &lanes), Ok(1));
         assert_eq!(
             edges.iter().map(|e| (e.a, e.b)).collect::<Vec<_>>(),
             [(1, 2), (2, 3)]
         );
+        // Two of five unlaned is more than a third: nothing goes.
+        let mut edges = vec![edge(1, 2), edge(2, 1), edge(1, 1), edge(3, 4), edge(4, 3)];
+        assert_eq!(retain_laned(&mut edges, &lanes), Err(2));
+        assert_eq!(edges.len(), 5);
+    }
+
+    #[test]
+    fn a_table_split_by_a_wide_gap_is_read_whole() {
+        let ids: Vec<u32> = (0..200).map(|n| 20_000 + 7 * n).collect();
+        let mut data = table(&ids[..100]);
+        data.extend(vec![0u8; CLUSTER_GAP + 1]);
+        data.extend(table(&ids[100..]));
+        let lanes = read_lane_ids(&data).unwrap();
+        assert!(ids.iter().all(|id| lanes.contains(id)));
     }
 
     #[test]

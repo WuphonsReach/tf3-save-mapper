@@ -528,9 +528,14 @@ fn run(args: Args) -> Result<(), Failure> {
             Some(free) => dropped = retain_live(&mut edges, &free),
             None => eprintln!("free-id list not found: every edge is drawn"),
         }
-        match read_lane_ids(&stream) {
-            Some(lanes) => dropped += retain_laned(&mut edges, &lanes),
-            None => eprintln!("lane table not found: leftover industry roads are drawn"),
+        let total = edges.len();
+        match read_lane_ids(&stream).map(|lanes| retain_laned(&mut edges, &lanes)) {
+            Some(Ok(n)) => dropped += n,
+            Some(Err(n)) => eprintln!(
+                "the lane table read would leave out {n} of {total} edges, too many to be \
+                 right: leftover pieces are drawn"
+            ),
+            None => eprintln!("lane table not found: leftover pieces are drawn"),
         }
     }
 
