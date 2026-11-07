@@ -2,7 +2,7 @@
 //!
 //! This crate holds the library side: container, header, street edges,
 //! terrain, model instances, the strip table's edge ids, the lane table, the
-//! filter for loose industry pieces, the facts read from
+//! filters for loose industry pieces and for an industry's own sidings and roads, the facts read from
 //! the game install at run time, and the SVG writer (and a flat PNG of the
 //! terrain and the network). It has no command-line
 //! code and never writes a save. The layout it reads is described in the
@@ -14,6 +14,7 @@ pub mod edges;
 pub mod error;
 pub mod geometry;
 pub mod header;
+pub mod inside;
 pub mod install;
 pub mod instances;
 pub mod lanes;
@@ -27,6 +28,7 @@ mod zip;
 pub use edges::{Edge, Family, read_edges, read_free_ids, retain_live};
 pub use error::{Error, Result};
 pub use header::{Header, read_header};
+pub use inside::{industry_footprints, retain_outside_footprints, retain_without_sidings};
 pub use install::{Install, Mods};
 pub use instances::{Instance, ModelTable, industry_models, read_instances, read_model_table};
 pub use lanes::{read_lane_ids, retain_laned};

@@ -13,9 +13,10 @@ use tf3_save_mapper_core::svg::{
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
-    industry_models, read_edges, read_free_ids, read_header, read_instances, read_lane_ids,
-    read_model_table, read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
-    write_png, write_svg,
+    industry_footprints, industry_models, read_edges, read_free_ids, read_header, read_instances,
+    read_lane_ids, read_model_table, read_strips, read_terrain, retain_laned, retain_live,
+    retain_near_industries, retain_outside_footprints, retain_without_sidings, write_png,
+    write_svg,
 };
 
 const USAGE: &str = "\
@@ -540,6 +541,13 @@ fn run(args: Args) -> Result<(), Failure> {
     } else if !args.keep_dead {
         eprintln!("model table not read: loose industry pieces are drawn");
     }
+    // An industry's own sidings, and its roads inside it: the footprint stands
+    // for them.
+    let inside = retain_without_sidings(&mut edges)
+        + retain_outside_footprints(
+            &mut edges,
+            &industry_footprints(&layers.industries, &layers.industry_faces),
+        );
     let tracks = edges.iter().filter(|e| e.family == Family::Track).count();
     let unread = edges.iter().filter(|e| e.width.is_none()).count();
     if unread > 0 {
@@ -570,7 +578,8 @@ fn run(args: Args) -> Result<(), Failure> {
         extra += &format!(", {} vehicles", layers.vehicles.len());
     }
     eprintln!(
-        "{} road edges, {} track edges ({dropped} deleted ones left out), {} industries, \
+        "{} road edges, {} track edges ({dropped} deleted ones and {inside} of industries' own \
+         left out), {} industries, \
          {} depots, {} station pieces{extra}; wrote {}",
         edges.len() - tracks,
         tracks,

@@ -14,9 +14,10 @@ use tf3_save_mapper_core::svg::{
     Crop, EdgeLabel, GridLines, GridStep, North, Rose, shown_edges, unmatched_labels,
 };
 use tf3_save_mapper_core::{
-    Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
-    read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
-    retain_laned, retain_live, retain_near_industries, write_png, write_svg,
+    Family, Layers, SvgOptions, container, edge_ids, industry_footprints, industry_models,
+    read_edges, read_free_ids, read_header, read_instances, read_lane_ids, read_model_table,
+    read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
+    retain_outside_footprints, retain_without_sidings, write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -349,6 +350,45 @@ fn a_loose_industry_stub_goes_unless_an_industry_model_is_near() {
         found.iter().any(|e| e.type_name() == "industry"),
         "a siding joined to the network stays"
     );
+}
+
+#[test]
+fn an_industrys_siding_inside_its_footprint_goes() {
+    let stream = common::stream(&edges());
+    let table = read_model_table(&stream).unwrap();
+    let instances = read_instances(&stream, &table, &["industries/"]);
+    let mains = industry_models(&table, &instances);
+    let industries: Vec<_> = instances
+        .iter()
+        .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
+        .collect();
+    assert_eq!(industries.len(), 1, "the farm; the hangar is no main model");
+    // A face in the farm's own axes round the siding, which lies 200 to 260
+    // m west and 130 to 170 m north of it; and one that misses it.
+    let round = |a0: f64, a1: f64, b0: f64, b1: f64| {
+        HashMap::from([(
+            "farm".to_owned(),
+            vec![(a0, b0), (a1, b0), (a1, b1), (a0, b1)],
+        )])
+    };
+    for (faces, gone) in [
+        (round(-80.0, 40.0, 240.0, 310.0), 1),
+        (round(-80.0, 0.0, 240.0, 310.0), 0),
+        (HashMap::new(), 0),
+    ] {
+        let mut found = read_edges(&stream).unwrap();
+        let before = found.len();
+        let prints = industry_footprints(&industries, &faces);
+        assert_eq!(retain_outside_footprints(&mut found, &prints), gone);
+        assert_eq!(found.len(), before - gone);
+        assert_eq!(found.iter().any(|e| e.type_name() == "industry"), gone == 0);
+    }
+    // Without a footprint the siding goes all the same, and nothing else.
+    let mut found = read_edges(&stream).unwrap();
+    let before = found.len();
+    assert_eq!(retain_without_sidings(&mut found), 1);
+    assert_eq!(found.len(), before - 1);
+    assert!(found.iter().all(|e| e.type_name() != "industry"));
 }
 
 #[test]
