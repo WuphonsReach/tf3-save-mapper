@@ -1,25 +1,34 @@
-//! The filter for an industry's own roads and tracks inside its footprint.
+//! The filters for an industry's own roads and tracks.
 //!
 //! An industry lays out its own sidings (`industry` track) and access roads
-//! with the rest of the network, and they are in the edge table. Inside the
-//! industry they are part of its drawing in the game, not the player's
-//! network, and the map shows the industry's footprint there instead. An edge
-//! of a type an industry builds is left out when the whole of it lies inside
-//! one footprint. The entrance road that crosses the footprint's edge to
-//! meet the network stays, and so does everything near an industry with no
-//! footprint (one whose script has no ground face and that has no measured
-//! one).
-//!
-//! Across 22 saves every live `industry` track edge drawn lay wholly inside
-//! a footprint, and no entrance road did.
+//! with the rest of the network, and they are in the edge table. They are
+//! part of the industry's drawing in the game, not the player's network, and
+//! the map shows the industry's footprint there instead. Every siding is left
+//! out, footprint or not: a player cannot build `industry` track, and across
+//! 22 saves every live siding drawn lay wholly inside a footprint. An edge of
+//! another type an industry builds (its roads) is left out when the whole of
+//! it lies inside one footprint. The entrance road that crosses the
+//! footprint's edge to meet the network stays, and so do the roads of an
+//! industry with no footprint (one whose script has no ground face and that
+//! has no measured one, or any industry when the install is not found).
 
 use std::collections::HashMap;
 
-use crate::edges::Edge;
+use crate::edges::{Edge, Family};
 use crate::geometry::{bounds, in_polygon};
 use crate::install::Polygon;
 use crate::instances::Instance;
 use crate::loose::is_industry_built;
+
+/// The track type an industry lays for its sidings.
+const SIDING: &str = "industry";
+
+/// Leave out every siding (`industry` track). Returns how many.
+pub fn retain_without_sidings(edges: &mut Vec<Edge>) -> usize {
+    let before = edges.len();
+    edges.retain(|e| !(e.family == Family::Track && e.type_name() == SIDING));
+    before - edges.len()
+}
 
 /// The points tested along an edge, ends included.
 const SAMPLES: usize = 11;
@@ -81,12 +90,17 @@ fn samples(e: &Edge) -> Vec<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edges::Family;
 
     const SIDING: &str = "industries/shared/industry_track/industry";
+    const YARD: &str = "street/constructions/ind_yard";
     const ENTRANCE: &str = "street/constructions/ind_entrance_old_country";
 
     fn edge(template: &str, p0: (f32, f32), p1: (f32, f32), bend: f32) -> Edge {
+        let family = if template.starts_with("street/") {
+            Family::Street
+        } else {
+            Family::Track
+        };
         let d = [p1.0 - p0.0, p1.1 - p0.1, 0.0];
         Edge {
             a: 1,
@@ -97,10 +111,24 @@ mod tests {
             t0: [d[0], d[1] + bend, 0.0],
             t1: [d[0], d[1] - bend, 0.0],
             template: Some(template.into()),
-            family: Family::Track,
+            family,
             width: Some(4.0),
             offset: 0,
         }
+    }
+
+    #[test]
+    fn every_siding_goes_and_nothing_else() {
+        let mut edges = vec![
+            edge(SIDING, (0.0, 0.0), (100.0, 0.0), 0.0),
+            edge(SIDING, (5000.0, 0.0), (5100.0, 0.0), 0.0),
+            edge(YARD, (0.0, 0.0), (100.0, 0.0), 0.0),
+            edge("track/standard", (0.0, 0.0), (100.0, 0.0), 0.0),
+            edge("street/town/town_old_small", (0.0, 0.0), (100.0, 0.0), 0.0),
+        ];
+        assert_eq!(retain_without_sidings(&mut edges), 2);
+        let left: Vec<_> = edges.iter().map(|e| e.type_name()).collect();
+        assert_eq!(left, ["ind_yard", "standard", "town_old_small"]);
     }
 
     #[test]

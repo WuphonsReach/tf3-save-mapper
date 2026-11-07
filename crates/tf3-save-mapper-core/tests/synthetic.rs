@@ -17,7 +17,7 @@ use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_footprints, industry_models,
     read_edges, read_free_ids, read_header, read_instances, read_lane_ids, read_model_table,
     read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
-    retain_outside_footprints, write_png, write_svg,
+    retain_outside_footprints, retain_without_sidings, write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -383,6 +383,12 @@ fn an_industrys_siding_inside_its_footprint_goes() {
         assert_eq!(found.len(), before - gone);
         assert_eq!(found.iter().any(|e| e.type_name() == "industry"), gone == 0);
     }
+    // Without a footprint the siding goes all the same, and nothing else.
+    let mut found = read_edges(&stream).unwrap();
+    let before = found.len();
+    assert_eq!(retain_without_sidings(&mut found), 1);
+    assert_eq!(found.len(), before - 1);
+    assert!(found.iter().all(|e| e.type_name() != "industry"));
 }
 
 #[test]
