@@ -398,6 +398,7 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
     let header = read_header(&stream).unwrap();
     let mut found = read_edges(&stream).unwrap();
     retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    assert_eq!(retain_without_sidings(&mut found), 1);
 
     let table = read_model_table(&stream).unwrap();
     let instances = read_instances(&stream, &table, &["industries/"]);
@@ -419,13 +420,16 @@ fn a_save_file_goes_all_the_way_to_an_svg() {
     assert!(svg.contains("d=\"M1048.0 524.0L1148.0 524.0\""), "{svg}");
     assert!(svg.contains("id=\"road-town_old_small\""));
     assert!(svg.contains("id=\"rail-standard\""));
-    assert!(svg.contains("id=\"rail-industry\""));
+    assert!(
+        !svg.contains("rail-industry"),
+        "the farm's siding is not drawn, and has no layer"
+    );
     assert!(
         !svg.contains("country_new_large"),
         "the deleted road is not drawn"
     );
     assert!(svg.contains("seed synthetic seed"));
-    assert_eq!(svg.matches("<path data-a").count(), 5);
+    assert_eq!(svg.matches("<path data-a").count(), 4);
     // The edges are as wide as their lanes.
     assert!(
         svg.contains("stroke=\"#323232\" stroke-width=\"15.5\""),
