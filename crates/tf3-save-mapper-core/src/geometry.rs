@@ -22,20 +22,6 @@ pub fn inside(poly: &[Point], x: f64, y: f64) -> bool {
     true
 }
 
-/// Whether (x, y) lies in the polygon `poly`, convex or not, in either
-/// winding: an odd number of its edges cross the ray from the point towards
-/// +x.
-pub fn in_polygon(poly: &[Point], x: f64, y: f64) -> bool {
-    let mut odd = false;
-    for (i, &(x0, y0)) in poly.iter().enumerate() {
-        let (x1, y1) = poly[(i + 1) % poly.len()];
-        if (y0 > y) != (y1 > y) && x < x0 + (y - y0) * (x1 - x0) / (y1 - y0) {
-            odd = !odd;
-        }
-    }
-    odd
-}
-
 /// The area centroid of a polygon when it lies inside the polygon, else
 /// `None` (a shape bent round its own centroid, or one with no area).
 pub fn centroid_inside(face: &[Point]) -> Option<Point> {

@@ -10,8 +10,10 @@
 //! two entity ids.
 //!
 //! A road or rail piece whose nodes have no lanes is one the game no longer
-//! routes on or draws: what a removed industry leaves of its access road and
-//! sidings, which the free-id list does not catch (`docs/gaps.md`).
+//! routes on or draws, and that the free-id list does not catch: mostly what
+//! a removed industry leaves of its access road and sidings (`docs/gaps.md`),
+//! but stale pieces of any type too (in one catalog save, 133 town streets,
+//! highway, tram and catenary track, most lying on a live edge's ends).
 
 use std::collections::HashSet;
 
@@ -111,8 +113,8 @@ pub fn read_lane_ids(data: &[u8]) -> Option<HashSet<u32>> {
 }
 
 /// Drop the edges with neither end node in `lanes`: pieces the game no longer
-/// routes on (a removed industry's road and sidings). An edge with one laned
-/// end is kept. Returns how many were dropped.
+/// routes on (a removed industry's road and sidings, or a stale piece of any
+/// type). An edge with one laned end is kept. Returns how many were dropped.
 pub fn retain_laned(edges: &mut Vec<Edge>, lanes: &HashSet<u32>) -> usize {
     let before = edges.len();
     edges.retain(|e| lanes.contains(&e.a) || lanes.contains(&e.b));
