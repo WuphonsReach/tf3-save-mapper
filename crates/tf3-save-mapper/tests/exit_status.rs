@@ -25,7 +25,12 @@ fn stderr(out: &Output) -> String {
 }
 
 /// The layers that read the game install, left out: tests never need one.
-const NO_INSTALL: [&str; 3] = ["--no-industries", "--no-depots", "--no-stations"];
+const NO_INSTALL: [&str; 4] = [
+    "--no-industries",
+    "--no-depots",
+    "--no-stations",
+    "--no-warehouses",
+];
 
 /// The core tests' hand-built save, with two roads: enough to draw a map.
 fn drawable_save(dir: &Path) -> PathBuf {

@@ -9,8 +9,10 @@ mod common;
 
 use common::{EdgeSpec, FREE_RUN_START, UNLANED_NODES};
 
-/// The layers that read the game install, left out: tests never need one.
-/// The model table is still read, for the loose-piece filter.
+/// The layers that need the game install, left out: tests never need one.
+/// The model table is still read, for the loose-piece filter. The warehouses
+/// read the install too but are drawn without it (with nothing inside), so
+/// they stay in.
 const NO_INSTALL: [&str; 3] = ["--no-industries", "--no-depots", "--no-stations"];
 
 /// Two town roads; an industry siding joined to them; a road with an end in
@@ -130,10 +132,28 @@ fn the_filters_leave_out_the_dead_the_loose_and_the_sidings() {
     assert_eq!(
         summary,
         "2 road edges, 0 track edges (5 deleted ones and 1 industry sidings left out), \
-         0 industries, 0 depots, 0 station pieces"
+         0 industries, 0 depots, 0 station pieces, 1 warehouses (2 modules)"
     );
     assert_eq!(edge_layers(&svg), ["road-town_old_small"]);
     assert_eq!(svg.matches("<path data-a").count(), 2);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn the_warehouses_can_be_left_out() {
+    let dir = scratch("no-warehouses");
+    let (svg, summary) = draw(&dir, &[]);
+    assert!(svg.contains("<g id=\"warehouses\""));
+    let (svg, without) = draw(&dir, &["--no-warehouses"]);
+    assert_eq!(
+        without,
+        summary.trim_end_matches(", 1 warehouses (2 modules)")
+    );
+    assert!(!svg.contains("class=\"warehouse"));
+    assert!(
+        svg.contains(" warehouses=\"off\""),
+        "the view record says so"
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -144,7 +164,7 @@ fn keep_dead_brings_back_all_but_the_sidings() {
     assert_eq!(
         summary,
         "7 road edges, 0 track edges (0 deleted ones and 1 industry sidings left out), \
-         0 industries, 0 depots, 0 station pieces"
+         0 industries, 0 depots, 0 station pieces, 1 warehouses (2 modules)"
     );
     assert_eq!(
         edge_layers(&svg),

@@ -1,8 +1,9 @@
 //! A hand-built stream with the structures the reader looks for, and nothing
 //! from a real save: a header, a model table, the terrain, a street-edge
 //! table, a decoy, model instances (an industry, two vehicles, a road
-//! maintenance building, a mod's boathouse and a mod industry's hangar), two
-//! road-surface strip entries, a lane table and a free-id list.
+//! maintenance building, a mod's boathouse, a mod industry's hangar and a
+//! warehouse's entrance and two modules), two road-surface strip entries, a
+//! lane table and a free-id list.
 
 #![allow(dead_code)]
 
@@ -91,6 +92,19 @@ pub const HANGAR_MODEL: &str = "industries/saw_mill/msc_hangar.mdl";
 pub const HANGAR_AT: (f32, f32) = (1600.0, 700.0);
 /// The Boathouse mod's depot: model id (a mod's, after the barn's), path,
 /// position and facing.
+/// A warehouse: its entrance, then the centre pieces of a goods module and a
+/// liquid module (turned a half turn, as the script turns alternate ones), 24
+/// and 56 m beyond the construction's origin, which lies 3 m beyond the
+/// entrance along its +y. Their instances come after the hangar's.
+pub const WAREHOUSE_IDS: [u32; 3] = [125, 126, 127];
+pub const WAREHOUSE_MODELS: [&str; 3] = [
+    "warehouses/entrance/entrance_sm.mdl",
+    "warehouses/wh_goods/top_right.mdl",
+    "warehouses/wh_liquid/wh_liquid.mdl",
+];
+pub const WAREHOUSE_AT: [(f32, f32); 3] = [(700.0, 300.0), (678.4, 316.2), (652.8, 335.4)];
+pub const WAREHOUSE_FACING: [(f32, f32); 3] = [(0.6, 0.8), (0.6, 0.8), (-0.6, -0.8)];
+
 pub const BOATHOUSE_ID: u32 = 901;
 pub const BOATHOUSE_MODEL: &str = "assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl";
 pub const BOATHOUSE_AT: (f32, f32) = (-1450.5, -320.4);
@@ -249,8 +263,8 @@ pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
 }
 
 /// The model table: 120 animals first, as the game's table sorts them, then
-/// the farm's main model, a bus, a wagon, a road maintenance building, a saw mill hangar and
-/// two mods' models whose ids skip ahead.
+/// the farm's main model, a bus, a wagon, a road maintenance building, a saw mill hangar, a
+/// warehouse's three pieces and two mods' models whose ids skip ahead.
 pub fn model_table() -> Vec<u8> {
     let mut b = Vec::new();
     let mut paths: Vec<String> = (0..FARM_ID)
@@ -261,6 +275,7 @@ pub fn model_table() -> Vec<u8> {
     paths.push("vehicle/waggon/box/box_waggon.mdl".into());
     paths.push(MAINT_MODEL.into());
     paths.push(HANGAR_MODEL.into());
+    paths.extend(WAREHOUSE_MODELS.map(String::from));
     let mods = [
         ("some_mod", "assets/some_mod/barn.mdl", 900),
         ("boathouse_mod", BOATHOUSE_MODEL, BOATHOUSE_ID),
@@ -331,8 +346,8 @@ pub fn strip_row(id: u32, side: u8, x: f32, y: f32) -> Vec<u8> {
 
 /// The whole stream: header, model table, terrain, a run of counters, the
 /// edge table, a decoy record far from it, the farm's, vehicles',
-/// maintenance building's, boathouse's and hangar's instances, the strip entries, the
-/// lane table and a free-id list near the end.
+/// maintenance building's, boathouse's, hangar's and warehouse's instances, the strip
+/// entries, the lane table and a free-id list near the end.
 pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     let mut s = header(604);
     s.extend_from_slice(&model_table());
@@ -364,6 +379,14 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     s.extend_from_slice(&instance(MAINT_ID, MAINT_AT, MAINT_FACING));
     s.extend_from_slice(&instance(BOATHOUSE_ID, BOATHOUSE_AT, BOATHOUSE_FACING));
     s.extend_from_slice(&instance(HANGAR_ID, HANGAR_AT, (1.0, 0.0)));
+    for k in 0..3 {
+        s.extend_from_slice(&[0x66; 3]);
+        s.extend_from_slice(&instance(
+            WAREHOUSE_IDS[k],
+            WAREHOUSE_AT[k],
+            WAREHOUSE_FACING[k],
+        ));
+    }
     for (side, x, y) in STRIP_ROWS {
         s.extend_from_slice(&strip_row(STRIP_ID, side, x, y));
         s.extend_from_slice(&[0x13; 6]);

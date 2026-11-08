@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
 use tf3_save_mapper_core::svg::{
     Crop, EdgeLabel, GridLines, GridStep, North, Rose, faces_with_measured, is_station_piece,
-    shown_edges, unmatched_labels,
+    is_warehouse_piece, shown_edges, unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
@@ -34,11 +34,12 @@ Options:
                       shading, water) instead of vector bands, water and height lines
       --png           write one flat PNG instead of the SVG: the --raster terrain with the roads and
                       rails drawn into its pixels, and nothing else (no stations, depots, industries,
-                      vehicles, labels, grid or rose); a tf3map:view text chunk says where it lies
-                      on the map
+                      warehouses, vehicles, labels, grid or rose); a tf3map:view text chunk says
+                      where it lies on the map
       --zoom N        show the picture N times larger (its width and height, not the viewBox)
       --game DIR      the game's install folder (the one holding base/), read for the footprints of
-                      depots, stations and industries (default: the usual Steam folders)
+                      depots, stations and industries and what is inside warehouses (default: the
+                      usual Steam folders)
       --mods DIR      the mod.io game's mods folder (the one holding a folder per mod), read for the
                       catchment of a mod's depots and the pieces of its roundhouses and modern depots
                       (default: the usual places beside the Steam folders)
@@ -50,6 +51,7 @@ Options:
       --coverage      draw each depot's and maintenance building's coverage: a dashed circle at its
                       catchment radius, round its origin, under the roads (needs the install)
       --no-stations   leave out the stations
+      --no-warehouses leave out the warehouses
       --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
                       upper-right, off, or X,Y (map metres) for its centre
       --rose-size M   the rose circle's diameter in metres (default 250, or an eighth of the
@@ -123,6 +125,7 @@ struct Args {
     depots: bool,
     coverage: bool,
     stations: bool,
+    warehouses: bool,
     vehicles: bool,
     names: HashMap<usize, String>,
     labels: Vec<EdgeLabel>,
@@ -144,6 +147,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut keep_dead = false;
     let (mut game, mut mods) = (None, None);
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
+    let mut warehouses = true;
     let mut coverage = false;
     let (mut grid, mut no_grid) = (None, false);
     let mut mpp = None;
@@ -193,6 +197,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--no-depots" => depots = false,
             "--coverage" => coverage = true,
             "--no-stations" => stations = false,
+            "--no-warehouses" => warehouses = false,
             "--no-rose" => options.rose = None,
             "--rose" => options.rose = rose(&value("--rose")?)?,
             "--rose-size" => {
@@ -238,22 +243,26 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             return Err(format!("{flag} works with the SVG, not --png"));
         }
         // A flat picture of the terrain and the network: no other layer.
-        (industries, depots, stations) = (false, false, false);
+        (industries, depots, stations, warehouses) = (false, false, false, false);
         (grid, no_grid) = (None, true);
         options.rose = None;
     }
     // What was switched away from the default, for the view record. A flat
-    // PNG leaves the industries, depots and stations out whatever was asked.
+    // PNG leaves the industries, depots, stations and warehouses out whatever
+    // was asked.
     for (name, set, default) in [
         ("terrain", terrain, true),
         ("industries", industries, true),
         ("depots", depots, true),
         ("stations", stations, true),
+        ("warehouses", warehouses, true),
         ("coverage", coverage, false),
         ("vehicles", vehicles, false),
         ("keep-dead", keep_dead, false),
     ] {
-        if set != default && !(png && matches!(name, "industries" | "depots" | "stations")) {
+        if set != default
+            && !(png && matches!(name, "industries" | "depots" | "stations" | "warehouses"))
+        {
             let value = if set { "on" } else { "off" };
             options.settings.push((name, value.to_owned()));
         }
@@ -301,6 +310,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         depots,
         coverage,
         stations,
+        warehouses,
         vehicles,
         names,
         labels,
@@ -566,6 +576,10 @@ fn run(args: Args) -> Result<(), Failure> {
     write_output(&args, &header, &edges, &layers)?;
 
     let mut extra = String::new();
+    if args.warehouses {
+        let (warehouses, modules) = warehouse_count(&layers.warehouses);
+        extra += &format!(", {warehouses} warehouses ({modules} modules)");
+    }
     if args.coverage {
         extra += &format!(", {} coverage circles", layers.coverage.len());
     }
@@ -630,10 +644,10 @@ fn read_layers(
     }
     let depots = args.depots || args.coverage;
     let pieces = !args.keep_dead;
-    if !(args.industries || depots || args.stations || args.vehicles || pieces) {
+    if !(args.industries || depots || args.stations || args.warehouses || args.vehicles || pieces) {
         return Ok((layers, None));
     }
-    let wants_install = args.industries || depots || args.stations;
+    let wants_install = args.industries || depots || args.stations || args.warehouses;
     let found = if wants_install {
         Install::find(args.game.as_deref())
     } else {
@@ -651,7 +665,7 @@ fn read_layers(
         (None, None) => {
             eprintln!(
                 "game install not found (try --game DIR): no depots or stations, \
-                 and industries without footprints"
+                 industries without footprints and warehouses with nothing inside"
             );
             None
         }
@@ -659,7 +673,7 @@ fn read_layers(
     let table = match read_model_table(stream) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("{e}: no industries, depots, stations or vehicles");
+            eprintln!("{e}: no industries, depots, stations, warehouses or vehicles");
             return Ok((layers, None));
         }
     };
@@ -672,6 +686,9 @@ fn read_layers(
     }
     if args.stations && game.is_some() {
         prefixes.extend(["stations/water/", "stations/rail/", "stations/street/"]);
+    }
+    if args.warehouses {
+        prefixes.push("warehouses/");
     }
     if args.vehicles {
         prefixes.push("vehicle/");
@@ -703,6 +720,16 @@ fn read_layers(
             .collect();
         layers.industry_faces =
             faces_with_measured(game.map(install::industry_faces).unwrap_or_default());
+    }
+    if args.warehouses {
+        layers.warehouses = instances
+            .iter()
+            .filter(|i| is_warehouse_piece(&i.model))
+            .cloned()
+            .collect();
+        if let Some(game) = game {
+            layers.warehouse_models = install::warehouse_models(game);
+        }
     }
     if args.vehicles {
         layers.vehicles = instances
@@ -1164,8 +1191,11 @@ mod tests {
             settings(&["s.sav", "--keep-dead", "--no-stations"]),
             [off("stations"), on("keep-dead")]
         );
-        // A PNG leaves the industries, depots and stations out by itself.
+        assert_eq!(settings(&["s.sav", "--no-warehouses"]), [off("warehouses")]);
+        // A PNG leaves the industries, depots, stations and warehouses out
+        // by itself.
         assert_eq!(settings(&["s.sav", "--png"]), []);
+        assert_eq!(settings(&["s.sav", "--png", "--no-warehouses"]), []);
         assert_eq!(
             settings(&["s.sav", "--png", "--no-terrain", "--keep-dead"]),
             [off("terrain"), on("keep-dead")]
@@ -1187,7 +1217,7 @@ mod tests {
     fn a_png_has_the_terrain_and_the_network_only() {
         let a = run_args(&["dir/s.sav", "--png"]);
         assert!(a.png && a.terrain && !a.options.raster);
-        assert!(!a.industries && !a.depots && !a.stations);
+        assert!(!a.industries && !a.depots && !a.stations && !a.warehouses);
         assert_eq!(a.options.grid, GridStep::Off);
         assert_eq!(a.options.rose, None);
         assert_eq!(a.options.metres_per_pixel, 4.0);
