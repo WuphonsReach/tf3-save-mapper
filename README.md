@@ -31,9 +31,9 @@ The whole map, north up and east right, in map metres, as layers that Inkscape a
   *`tf3map SAVE --crop 4680,-1410,940 --mpp 1 --rail-grades`, on a save published in the mod.io catalogue (6414627). Click for the full size.*
 - **Texts**, when asked for: names placed by hand at map points (`--text`, `--text-file`), white on a dark rounded box as the game labels its towns. The save holds the names of towns and industries but not where a town is, so this is how to put them on the map for now.
 
-  ![An 8 km crop of the maintainer's own editor map: the small towns of Deming and Quemado, each name on a dark box over its streets, joined by a road, and between them on a hill Deming Logging Camp with its name in smaller type below its footprint.](docs/images/texts-deming-quemado.svg)
+  ![An 8.4 km crop of the maintainer's own editor map: the small towns of Deming and Quemado, each name on a dark box over its streets, joined by a road; between them on a hill Deming Logging Camp, and north-west of Deming the Deming Saw Mill, each with its name in smaller type beside its footprint.](docs/images/texts-deming-quemado.svg)
 
-  *`tf3map SAVE --crop 2300,-8000,4000 --text "-410,-7671=Deming" --text "5163,-9172=Quemado" --text "2019,-9340,small=Deming Logging Camp"`, on the maintainer's own map.*
+  *`tf3map SAVE --crop 1700,-8000,4200 --text "-410,-7671=Deming" --text "5163,-9172=Quemado" --text "2019,-9340,small=Deming Logging Camp" --text "-1708,-5795,small=Deming Saw Mill"`, on the maintainer's own map.*
 - A **grid** of map coordinates: marks at round values of x and y, labelled along the top and left edges.
 - A **compass rose**, in the lower right corner unless asked elsewhere.
 
