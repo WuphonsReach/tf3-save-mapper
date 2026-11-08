@@ -27,8 +27,7 @@ draw "WR26A Giga-Tv3 1919 1107-1558.sav" peterlee-refinery.svg \
 # mod.io 6433459: a wide road in a tunnel under a warehouse.
 draw 6433459.sav warehouse-tunnel.svg --crop -1482,1231,480 --mpp 1
 
-# Rail grades (docs/rail-grades.md), all from saves published in the mod.io
-# catalogue.
+# Grades (docs/grades.md), all from saves published in the mod.io catalogue.
 # mod.io 6414627: a helix of six rings, centred, with the line out of it.
 draw 6414627.sav rail-grades-helix.svg --crop 4680,-1410,940 --mpp 1 --rail-grades
 # mod.io 6459692: a four-track mountain line round a horseshoe curve, with
@@ -42,3 +41,10 @@ draw 6433417.sav rail-grades-fan.svg --crop 950,700,940 --mpp 1 --rail-grades
 # mod.io 6448903: a harbour town, centred, with a multi-track line and its
 # tunnel down the west side.
 draw 6448903.sav rail-grades-town.svg --crop 0,-600,1000 --mpp 1 --rail-grades
+# mod.io 6426294: a tram line climbing through a tunnel to 33 %, crossing a
+# road and a rail line.
+draw 6426294.sav grades-tram-climb.svg --crop 4576,-2485,930 --mpp 1 \
+    --road-grades --tram-grades --rail-grades
+# mod.io 6431683: a hilly town's streets and its tram tunnels.
+draw 6431683.sav grades-hill-town.svg --crop -1488,1446,700 --mpp 1 \
+    --road-grades --tram-grades

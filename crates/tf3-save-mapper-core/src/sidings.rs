@@ -35,6 +35,7 @@ mod tests {
             template: Some(template.into()),
             family,
             width: Some(4.0),
+            modes: None,
             offset: 0,
         }
     }

@@ -718,6 +718,7 @@ mod tests {
             template: None,
             family: Family::Street,
             width: Some(3.0),
+            modes: None,
             offset: 0,
         };
         let mut img = blank((40, 40), [255; 3]).unwrap();
@@ -752,6 +753,7 @@ mod tests {
             template: None,
             family,
             width: Some(3.0),
+            modes: None,
             offset,
         };
         let (tunnel, bridge) = (

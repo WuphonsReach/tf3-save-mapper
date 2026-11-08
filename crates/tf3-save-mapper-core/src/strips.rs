@@ -178,6 +178,7 @@ mod tests {
             template: None,
             family: Family::Street,
             width: None,
+            modes: None,
             offset,
         }
     }

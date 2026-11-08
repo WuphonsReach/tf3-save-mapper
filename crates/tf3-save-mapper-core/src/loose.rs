@@ -126,6 +126,7 @@ mod tests {
             template: Some(template.into()),
             family: Family::Street,
             width: Some(8.0),
+            modes: None,
             offset: 0,
         }
     }
