@@ -1,8 +1,8 @@
-# Rail grades: examples
+# Grades: examples
 
-`tf3map SAVE --rail-grades` colours each track by its grade: the height between the edge's two ends over its length along the curve, up or down alike. At the default limit of 13 % (the steepest the game's track types allow) there is one colour per whole percent, and magenta from the limit up. `--rail-grade-limit P` squeezes the same 14 colours under a lower limit. The [README](../README.md#using-it) has the details.
+`tf3map SAVE --rail-grades` colours each track by its grade: the height between the edge's two ends over its length along the curve, up or down alike. At the default limit of 13 % (the steepest the game's track types allow) there is one colour per whole percent, and magenta from the limit up. `--road-grades` does the same for the roads (streets with tram lanes among them) and `--tram-grades` for the tram lines of their own, both with a default limit of 20 %, as steep as the game builds them. `--rail-grade-limit P`, `--road-grade-limit P` and `--tram-grade-limit P` spread the same 14 colours under another limit. The [README](../README.md#using-it) has the details.
 
-Each map carries its key along the bottom: the 14 colours, with the grade at each gap between two of them.
+Each map carries its key along the bottom: a row per family drawn, its 14 colours, with the grade at each gap between two of them.
 
 Every map here is from a save published in the mod.io catalogue, drawn with the default vector terrain at 1 m per pixel. Click a map for the full size; in the full SVG each segment's grade is in its `data-grade` attribute. The maps are redrawn by [regenerate-examples.sh](regenerate-examples.sh).
 
@@ -32,3 +32,18 @@ Every map here is from a save published in the mod.io catalogue, drawn with the 
 </table>
 
 Each is `tf3map SAVE --crop X,Y,R --mpp 1 --rail-grades`.
+
+## Roads and tram lines
+
+<table>
+<tr>
+<td width="50%"><a href="images/grades-hill-town.svg"><img src="images/grades-hill-town.svg" width="420" alt="A hilly town's street grid, level streets green, the streets up the slopes orange and red, a few magenta, with dashed road and tram tunnels under it."></a><br>
+<b>A hill town</b> (mod.io 6431683): the level grid in green, the streets up the slopes orange to red and a few over 20 % in magenta, and the road and tram tunnels beneath, dashed.<br>
+<code>--crop -1488,1446,700 --road-grades --tram-grades</code></td>
+<td width="50%"><a href="images/grades-tram-climb.svg"><img src="images/grades-tram-climb.svg" width="420" alt="A tram line in a tunnel climbing from green through red to magenta, over 30 %, where it crosses under a rail line; a level road beside it."></a><br>
+<b>A tram climb</b> (mod.io 6426294): a tram line in a tunnel climbing from green through red to magenta, past 30 %, as it crosses a rail line; the road beside it is level.<br>
+<code>--crop 4576,-2485,930 --road-grades --tram-grades --rail-grades</code></td>
+</tr>
+</table>
+
+Each is `tf3map SAVE --crop X,Y,R --mpp 1` and the options given.

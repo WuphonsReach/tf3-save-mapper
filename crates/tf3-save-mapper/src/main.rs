@@ -88,6 +88,11 @@ Options:
                       steepest the game's track types allow) and over (also with --png)
       --rail-grade-limit P  the grade in percent from which a track is magenta (default 13); the
                       other 13 colours are spread evenly below it
+      --road-grades   the same for each road (a street with tram lanes too), magenta at 20 % (as
+                      steep as the game builds roads) and over
+      --road-grade-limit P  the grade in percent from which a road is magenta (default 20)
+      --tram-grades   the same for each tram line of its own (no road lanes), magenta at 20 %
+      --tram-grade-limit P  the grade in percent from which a tram line is magenta (default 20)
   -h, --help          show this help
   -V, --version       show the version";
 
@@ -162,7 +167,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut png = false;
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
-    let mut rail_grade_limit = false;
+    let (mut rail_grade_limit, mut road_grade_limit, mut tram_grade_limit) = (false, false, false);
     while let Some(arg) = args.next() {
         if VECTOR_ONLY.contains(&arg.as_str()) {
             vector_only.push(arg.clone());
@@ -226,6 +231,18 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
                     width("--rail-grade-limit", &value("--rail-grade-limit")?)?;
                 rail_grade_limit = true;
             }
+            "--road-grades" => options.road_grades = true,
+            "--road-grade-limit" => {
+                options.road_grade_limit =
+                    width("--road-grade-limit", &value("--road-grade-limit")?)?;
+                road_grade_limit = true;
+            }
+            "--tram-grades" => options.tram_grades = true,
+            "--tram-grade-limit" => {
+                options.tram_grade_limit =
+                    width("--tram-grade-limit", &value("--tram-grade-limit")?)?;
+                tram_grade_limit = true;
+            }
             "--label" => labels.push(label(&value("--label")?)?),
             "--edge-ids" => edge_ids = true,
             "--name" => {
@@ -240,8 +257,14 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
     }
     let save = save.ok_or("no save given (try --help)")?;
-    if rail_grade_limit && !options.rail_grades {
-        return Err("--rail-grade-limit needs --rail-grades".into());
+    for (limit, asked, kind) in [
+        (rail_grade_limit, options.rail_grades, "rail"),
+        (road_grade_limit, options.road_grades, "road"),
+        (tram_grade_limit, options.tram_grades, "tram"),
+    ] {
+        if limit && !asked {
+            return Err(format!("--{kind}-grade-limit needs --{kind}-grades"));
+        }
     }
     let mpp = match mpp {
         Some(m) if m < 4 && options.crop.is_none() => {
@@ -619,18 +642,37 @@ fn run(args: Args) -> Result<(), Failure> {
     if args.vehicles {
         extra += &format!(", {} vehicles", layers.vehicles.len());
     }
-    if args.options.rail_grades {
-        // Of the tracks in the picture.
-        let grades: Vec<f64> = shown_edges(&header, &edges, &args.options)
+    let o = &args.options;
+    let is_track: fn(&Edge) -> bool = |e| e.family == Family::Track;
+    let families = [
+        (
+            o.road_grades,
+            o.road_grade_limit,
+            Edge::is_road as fn(&Edge) -> bool,
+            "road",
+        ),
+        (
+            o.tram_grades,
+            o.tram_grade_limit,
+            Edge::is_tram_only,
+            "tram line",
+        ),
+        (o.rail_grades, o.rail_grade_limit, is_track, "track"),
+    ];
+    for (asked, limit, is, kind) in families {
+        if !asked {
+            continue;
+        }
+        // Of the edges of that kind in the picture.
+        let grades: Vec<f64> = shown_edges(&header, &edges, o)
             .into_iter()
-            .filter(|e| e.family == Family::Track)
+            .filter(|e| is(e))
             .map(Edge::grade)
             .collect();
         let steepest = grades.iter().copied().fold(0.0, f64::max);
-        let limit = args.options.rail_grade_limit;
         let over = grades.iter().filter(|&&g| g >= limit).count();
         extra += &format!(
-            ", track grades up to {steepest:.2} % ({over} at {} % or more)",
+            ", {kind} grades up to {steepest:.2} % ({over} at {} % or more)",
             fmt_percent(limit)
         );
     }
@@ -1208,6 +1250,18 @@ mod tests {
         assert_eq!(a.options.rail_grade_limit, 8.5);
         assert!(parse(&["s.sav", "--rail-grade-limit", "8"]).is_err());
         assert!(parse(&["s.sav", "--rail-grades", "--rail-grade-limit", "0"]).is_err());
+        let a = run_args(&["s.sav", "--road-grades", "--tram-grades"]);
+        assert!(a.options.road_grades && a.options.tram_grades && !a.options.rail_grades);
+        assert_eq!(
+            (a.options.road_grade_limit, a.options.tram_grade_limit),
+            (20.0, 20.0)
+        );
+        let a = run_args(&["s.sav", "--road-grades", "--road-grade-limit", "16"]);
+        assert_eq!(a.options.road_grade_limit, 16.0);
+        let a = run_args(&["s.sav", "--tram-grades", "--tram-grade-limit", "12"]);
+        assert_eq!(a.options.tram_grade_limit, 12.0);
+        assert!(parse(&["s.sav", "--road-grade-limit", "20"]).is_err());
+        assert!(parse(&["s.sav", "--rail-grades", "--tram-grade-limit", "12"]).is_err());
         assert_eq!(fmt_percent(8.5), "8.5");
         assert_eq!(fmt_percent(13.0), "13");
         assert!(!run_args(&["s.sav"]).coverage, "no coverage by default");
@@ -1461,6 +1515,7 @@ mod tests {
                 template: Some("street/country/ind_country_old_small".into()),
                 family: Family::Street,
                 width: Some(8.0),
+                modes: None,
                 offset: 0,
             }]
         };

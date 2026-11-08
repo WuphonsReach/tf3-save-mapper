@@ -1528,7 +1528,20 @@ fn with_structures() -> (
     Vec<tf3_save_mapper_core::Edge>,
     Layers,
 ) {
-    let stream = common::stream(&edges_with_structures());
+    with_structures_and(Vec::new())
+}
+
+/// As `with_structures`, with `extra` edges besides.
+fn with_structures_and(
+    extra: Vec<EdgeSpec>,
+) -> (
+    tf3_save_mapper_core::Header,
+    Vec<tf3_save_mapper_core::Edge>,
+    Layers,
+) {
+    let mut specs = edges_with_structures();
+    specs.extend(extra);
+    let stream = common::stream(&specs);
     let header = read_header(&stream).unwrap();
     let mut found = read_edges(&stream).unwrap();
     retain_live(&mut found, &read_free_ids(&stream).unwrap());
@@ -1756,6 +1769,110 @@ fn rail_grades_colour_the_tracks_over_the_network_tunnels_and_all() {
     // Its key in one decimal throughout.
     assert!(svg.contains(">0.0</text>") && svg.contains(">8.5</text>"));
     assert!(!svg.contains(">0</text>"));
+}
+
+#[test]
+fn road_and_tram_grades_take_their_own_edges_under_the_rails() {
+    let (header, found, layers) = with_structures_and(vec![
+        // A tram line of its own, 8 m up over 100 m.
+        EdgeSpec {
+            a: 0x7320,
+            b: 0x7321,
+            p0: [1300.0, -700.0, 10.0],
+            p1: [1400.0, -700.0, 18.0],
+            template: "street/tram/tram_new",
+            lanes: &[0x60, 0x60],
+            ..EdgeSpec::default()
+        },
+        // A street with tram lanes: a road, 2 m up over 100 m.
+        EdgeSpec {
+            a: 0x7330,
+            b: 0x7331,
+            p0: [1300.0, -650.0, 10.0],
+            p1: [1400.0, -650.0, 12.0],
+            template: "street/town/town_new_medium_tram",
+            lanes: &[0x03, 0x7c, 0x7c, 0x03],
+            ..EdgeSpec::default()
+        },
+    ]);
+    let tram = found.iter().find(|e| e.a == 0x7320).unwrap();
+    let road_tram = found.iter().find(|e| e.a == 0x7330).unwrap();
+    assert!(tram.is_tram_only() && !tram.is_road());
+    assert!(road_tram.is_road() && !road_tram.is_tram_only());
+    // A track carries the tram-track bits too, but is neither.
+    for track in found.iter().filter(|e| e.family == Family::Track) {
+        assert!(!track.is_road() && !track.is_tram_only());
+    }
+    let draw = |options: &SvgOptions| {
+        let mut out = Vec::new();
+        write_svg(&mut out, &header, &found, &layers, options).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    let svg = draw(&SvgOptions {
+        road_grades: true,
+        tram_grades: true,
+        rail_grades: true,
+        ..SvgOptions::default()
+    });
+    let at = |id: &str| {
+        svg.find(&format!("<g id=\"{id}\""))
+            .unwrap_or_else(|| panic!("no {id}"))
+    };
+    // Roads at the bottom, then tram lines, then rails.
+    assert!(at("grades") < at("grades-road"));
+    assert!(at("grades-road") < at("grades-road-bridge"));
+    assert!(at("grades-road-bridge") < at("grades-tram"));
+    assert!(at("grades-tram") < at("grades-rail-tunnel"));
+    let road = &svg[at("grades-road")..at("grades-tram")];
+    let tram = &svg[at("grades-tram")..at("grades-rail-tunnel")];
+    assert!(road.contains("data-limit=\"20\""));
+    // Under the 20 % limit: 14.75 % the 10th colour, 5 % the 4th, 2 % (the
+    // street with tram lanes) and the bridge's 3 % the 2nd; 29.5 % over.
+    for (a, grade, colour) in [
+        ("64", "14.75", "#f57546"),
+        ("65", "29.50", "#c51b8a"),
+        ("67", "5.00", "#61ba61"),
+        ("7330", "2.00", "#0f8446"),
+        ("7310", "3.00", "#0f8446"),
+    ] {
+        assert!(
+            road.contains(&format!("data-a=\"{a}\" data-b=\"")),
+            "{a}: {road}"
+        );
+        assert!(
+            road.contains(&format!("data-grade=\"{grade}\" stroke=\"{colour}\"")),
+            "{a}: {road}"
+        );
+    }
+    assert!(!road.contains("data-a=\"7320\"") && !road.contains("data-a=\"66\""));
+    assert!(tram.contains("inkscape:label=\"Grades: Tram lines\""));
+    assert!(
+        tram.contains("data-a=\"7320\" data-b=\"7321\" data-grade=\"8.00\" stroke=\"#c6e761\"")
+    );
+    assert_eq!(tram.matches("data-grade=").count(), 1, "{tram}");
+    // The key: a row each, top to bottom as they lie, the roads' and tram
+    // lines' numbered in tenths, the rails' still in whole percent.
+    let key = &svg[at("grades-key")..at("compass")];
+    let row = |f: &str| key.find(&format!("data-family=\"{f}\"")).unwrap();
+    assert!(row("road") < row("tram") && row("tram") < row("rail"));
+    assert!(key.contains(">Road Grade</text>") && key.contains(">Tram Grade</text>"));
+    assert!(key.contains(">20.0</text>") && key.contains(">13</text>"));
+    assert!(svg.contains("road-grades=\"on\" tram-grades=\"on\" rail-grades=\"on\""));
+
+    // Each alone, with its own limit.
+    let svg = draw(&SvgOptions {
+        road_grades: true,
+        road_grade_limit: 16.0,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("road-grades=\"on\" road-grade-limit=\"16\""));
+    assert!(!svg.contains("grades-tram") && !svg.contains("grades-rail"));
+    assert!(svg.contains(">0.0</text>") && svg.contains(">16.0</text>"));
+    let svg = draw(&SvgOptions {
+        tram_grades: true,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("<g id=\"grades-tram\"") && !svg.contains("grades-road"));
 }
 
 #[test]
