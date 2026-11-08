@@ -9,7 +9,7 @@ Where an entry says how many saves something is in, the count is from a model co
 ## In short
 
 - **Never drawn, readable today:** airports, freight terminal platforms (rail and truck), landmarks and company headquarters, street station side buildings `_s1`. Aircraft are drawn, but as a car-sized grey shape.
-- **Drawn wrong:** runways and taxiways are drawn as roads; false records at exactly 0,0 are drawn as industries and depots in two saves; road ends are round where the game's are flat; the grid's marks are too heavy on a small crop viewed larger.
+- **Drawn wrong:** runways and taxiways are drawn as roads; road ends are round where the game's are flat; the grid's marks are too heavy on a small crop viewed larger.
 - **Mod depots:** the buffer-stop depot and a Chinese EMU depot mod are not drawn.
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
@@ -27,7 +27,6 @@ Where an entry says how many saves something is in, the count is from a model co
 ## Drawn wrong
 
 - **Runways and taxiways drawn as roads** Their edges are street edges with their own lane modes (`0xa00` and `0x800`, `road-network.md`) and no vehicle lanes (`street-templates.md`), and they fall into the roads layer. Needs: their own sublayer and style once the airport layer exists.
-- **False records at exactly 0,0** Two of the 8 saves have records that fit the instance pattern but are no transform: their rows read `1 0 k 0` and `0 d d 0` with `d` a subnormal float (about 1e-40), so the translation comes out at 0, 0. They carry the ids of real models, so `tf3map` draws them on the origin: 165 industries and 8 rail maintenance buildings with their coverage circles in 6487589, 53 industries in 6488211. Needs: a rule that leaves out a record with a subnormal float in its first three rows (none was seen in a real transform; check over the catalogue saves first), or what structure they belong to, from the format side.
 - **Road ends** A road that stops is drawn with a round cap (`stroke-linecap="round"` on every road sublayer); the game ends it flat (noted in tf3-save-format's shot-place skill). Needs: a flat cap where an end node has one edge, without opening gaps at junctions, where the round cap hides the seams.
 
 - **Grid marks on a small crop** The grid's marks are sized in the picture's pixels at `--mpp` (a small cross's arm and every dot one pixel, a big cross's arm just short of the first dot), not to the size the picture is looked at. A small crop at the default 4 m per pixel is a small picture: `--crop 2830,3950,250` is 125 x 125 pixels with a 100 m grid. Shown larger, by a viewer or with `--zoom`, its marks grow with it: the big crosses' strokes come out about 6 m wide and the dots as heavy as the tracks, and the grid competes with what it should only locate. Seen on a 500 m crop shown 900 pixels across. Needs: the marks sized by `--zoom` as well as `--mpp` (a mark of so many pixels at the shown size), or a finer default `--mpp` on a small crop, and the labels' size checked with them.

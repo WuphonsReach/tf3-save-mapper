@@ -143,6 +143,13 @@ pub fn read_instances(data: &[u8], table: &ModelTable, prefixes: &[&str]) -> Vec
         if ![x, y, z, fx, fy].iter().all(|v| v.is_finite()) {
             continue;
         }
+        // Some other structure's bytes fit the pattern with a subnormal
+        // position (about 1e-40), which reads as 0,0; no instance on the map
+        // has one. A turn can have one (a turned helicopter's), so only the
+        // position is checked.
+        if [x, y, z].iter().any(|v| v.is_subnormal()) {
+            continue;
+        }
         out.push(Instance {
             slot: k,
             model: (*model).to_owned(),
@@ -366,6 +373,35 @@ mod tests {
         }
         let found = read_instances(&s, &table, &["industries/"]);
         assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_subnormal_position_is_no_instance() {
+        let mut s = stream();
+        let table = read_model_table(&s).unwrap();
+        let d = 1.68e-40_f32;
+        let m = [
+            1.0, 0.0, 2.5, 0.0, 0.0, d, 2.59e-42, 0.0, 1.0, 0.0, 2.5, 0.0, 0.0, d,
+        ];
+        let write = |s: &mut Vec<u8>, m: &[f32], z: f32| {
+            s.extend_from_slice(&120u32.to_le_bytes());
+            for f in m.iter().chain(&[z, 1.0]) {
+                s.extend_from_slice(&f.to_le_bytes());
+            }
+            s.extend_from_slice(&[3; 30]);
+        };
+        // Another structure's bytes, read as a farm at 0,0.
+        write(&mut s, &m, 2.59e-42);
+        // A turned helicopter's transform can hold a subnormal too; its
+        // position is a real one.
+        let turned = [
+            -1.8e-39, -1.62e-23, -1.0, 0.0, 1.0, -1.11e-16, 0.0, 0.0, -1.11e-16, -1.0, 1.62e-23,
+            0.0, 3166.0, -6842.0,
+        ];
+        write(&mut s, &turned, 9.1);
+        let found = read_instances(&s, &table, &["industries/"]);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!((found[1].x, found[1].y), (3166.0, -6842.0));
     }
 
     #[test]
