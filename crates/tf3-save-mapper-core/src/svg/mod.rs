@@ -7,9 +7,10 @@
 //! widths are in metres too and scale with the picture. Layers are
 //! groups Inkscape shows as layers, each also `class="layer"` with its id in
 //! `data-layer` as in the prototype (`layer`), bottom to top: `background`, `terrain`,
-//! `grid`, `coverage`, `stations`, `roads` and `rails` (each with one sublayer per street
-//! or track type), the depot layers, `stations-street`, `industries`,
-//! `vehicles`, `labels`, `grid-labels` and `compass`.
+//! `grid`, `tunnels`, `coverage`, `stations`, `warehouses`, `roads` and `rails` (each with
+//! one sublayer per street or track type), `bridges`, the depot layers, `stations-street`,
+//! `industries`, `vehicles`, the overlays asked for (`grades`), `labels`, `grid-labels`,
+//! the overlays' keys (`grades-key`) and `compass`.
 //!
 //! `write_png` draws the map as one flat PNG instead: the raster terrain with
 //! the roads and rails drawn into its pixels, as the prototype's `--png` does.
@@ -17,6 +18,7 @@
 mod coverage;
 mod dashes;
 mod depots;
+mod grades;
 mod grid;
 mod industries;
 mod labels;
@@ -97,7 +99,7 @@ pub struct SvgOptions {
     pub raster: bool,
     /// Where the compass rose goes, if anywhere.
     pub rose: Option<Rose>,
-    /// The rose circle's diameter, metres. `None`: 250, or an eighth of the
+    /// The rose circle's diameter, metres. `None`: 250, or a twelfth of the
     /// picture's shorter side when that is less. A size given is not capped.
     pub rose_size: Option<f64>,
     /// Which way is up.
@@ -113,6 +115,12 @@ pub struct SvgOptions {
     pub crop: Option<Crop>,
     /// The picture's width and height in pixels are multiplied by this.
     pub zoom: u32,
+    /// Colour each track by its grade, in the layer `grades` over the
+    /// network (`grades::FAMILIES`).
+    pub rail_grades: bool,
+    /// The grade, percent, from which a track takes the last colour; the
+    /// other 13 colours are spread evenly below it.
+    pub rail_grade_limit: f64,
     /// The build that draws, for the view record's `generator-commit`
     /// (the caller knows it; the core does not). Left out when `None`.
     pub generator_commit: Option<&'static str>,
@@ -141,6 +149,8 @@ impl Default for SvgOptions {
             grid_dot_step: 25.0,
             crop: None,
             zoom: 1,
+            rail_grades: false,
+            rail_grade_limit: grades::DEFAULT_LIMIT,
             generator_commit: None,
             settings: Vec::new(),
         }
@@ -592,6 +602,12 @@ pub fn write_svg(
             cut,
         ),
     )?;
+    // The overlays: figures about the network over everything drawn from
+    // the save, under the labels, the grid's labels and the rose. Later ones
+    // (speeds) go here too.
+    if grades::any(options) {
+        grades::write(out, &picture, &edges, edge_ids, &levels, options)?;
+    }
     write_lines(
         out,
         &labels::layers(
@@ -604,6 +620,7 @@ pub fn write_svg(
         ),
     )?;
     write_lines(out, &grid_labels)?;
+    write_lines(out, &grades::key(&view, options))?;
     if let Some(place) = options.rose {
         write_lines(
             out,
@@ -675,6 +692,18 @@ pub fn write_png(
         |e| edge_width(e, options),
         &levels,
     );
+    if grades::any(options) {
+        raster::draw_grades(
+            &mut img,
+            &corner,
+            sampling.spacing,
+            &edges,
+            |e| edge_width(e, options),
+            &levels,
+            |e| grades::shade(e, options),
+            (grades::CASING, grades::CASING_COLOUR),
+        );
+    }
     // A flat picture has no grid or rose, so neither is a setting of it.
     let flat = SvgOptions {
         grid: GridStep::Auto,
@@ -833,6 +862,12 @@ fn non_default_settings(options: &SvgOptions) -> Vec<(&'static str, String, bool
     if options.raster {
         found.push(("terrain", "raster".to_owned(), true));
     }
+    if options.rail_grades {
+        found.push(("rail-grades", "on".to_owned(), true));
+        if options.rail_grade_limit != default.rail_grade_limit {
+            found.push(("rail-grade-limit", fmt_g(options.rail_grade_limit), false));
+        }
+    }
     if !options.bands {
         found.push(("bands", "false".to_owned(), true));
     }
@@ -923,18 +958,7 @@ fn write_network(
         let family = u8::from(e.family == Family::Track);
         groups.entry((family, e.type_name())).or_default().push(e);
     }
-    let pt = |p: (f64, f64)| {
-        let (u, v) = picture.pic(p);
-        format!("{} {}", fmt1(u), fmt1(v))
-    };
-    let path = |e: &Edge| {
-        let c = e.bezier();
-        if e.is_curved(CURVE_TOLERANCE) {
-            format!("M{}C{} {} {}", pt(c[0]), pt(c[1]), pt(c[2]), pt(c[3]))
-        } else {
-            format!("M{}L{}", pt(c[0]), pt(c[3]))
-        }
-    };
+    let path = |e: &Edge| edge_path(picture, e);
     let (suffix, style) = match level {
         None => (
             "",
@@ -1073,6 +1097,20 @@ fn write_network(
         writeln!(out, "</g>")?;
     }
     Ok(())
+}
+
+/// An edge's centre line as path data: a cubic where it bends, else a line.
+fn edge_path(picture: &Picture, e: &Edge) -> String {
+    let pt = |p: (f64, f64)| {
+        let (u, v) = picture.pic(p);
+        format!("{} {}", fmt1(u), fmt1(v))
+    };
+    let c = e.bezier();
+    if e.is_curved(CURVE_TOLERANCE) {
+        format!("M{}C{} {} {}", pt(c[0]), pt(c[1]), pt(c[2]), pt(c[3]))
+    } else {
+        format!("M{}L{}", pt(c[0]), pt(c[3]))
+    }
 }
 
 /// The most common of `counts`' keys (the last of those tied).

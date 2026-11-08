@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="964" height="964" viewBox="2132 2384 964 964">
 <title>Terrain, roads and rails</title>
 <desc>Transport Fever 3 save, format 604, map 8192 x 8192 m, climate ::/climates/temperate/temperate.clima, seed G1y8CzhLit</desc>
-<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="8192" map-height="8192" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-1964" x-max="-1000" y-min="748" y-max="1712" crop-x="-1482" crop-y="1231" crop-radius="480" generator="tf3map" generator-version="0.9.0" generator-commit="96405821fd"/></metadata>
+<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="8192" map-height="8192" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-1964" x-max="-1000" y-min="748" y-max="1712" crop-x="-1482" crop-y="1231" crop-radius="480" generator="tf3map" generator-version="0.9.0" generator-commit="92ca9a503a-dirty"/></metadata>
 <g id="background" class="layer" data-layer="background" inkscape:groupmode="layer" inkscape:label="Background"><rect x="2132" y="2384" width="964" height="964" fill="#ffffff"/></g>
 <g id="terrain" class="layer" data-layer="terrain" inkscape:groupmode="layer" inkscape:label="Terrain" transform="translate(2132 2384)">
 <g id="land" class="layer" data-layer="land" inkscape:groupmode="layer" inkscape:label="Land"><rect width="964" height="964" fill="#aac380"/></g>
@@ -374,11 +374,11 @@
 <text x="2136.2" y="3291.8" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">y 800</text>
 </g>
 <g id="compass" class="layer" data-layer="compass" inkscape:groupmode="layer" inkscape:label="Compass rose">
-<circle cx="3026.7" cy="3278.7" r="60.2" fill="#ffffff" stroke="#000000" stroke-width="1.81"/>
-<path d="M3026.7 3278.7L3026.7 3234.0M3026.7 3278.7L3026.7 3301.1M3026.7 3278.7L3049.1 3278.7M3026.7 3278.7L3004.3 3278.7" stroke="#000000" stroke-width="3.88" fill="none"/>
-<path d="M3026.7 3225.0L3035.7 3245.9L3017.8 3245.9z" fill="#000000"/>
-<text x="3064.3" y="3287.6" text-anchor="middle" font-family="sans-serif" font-size="25.4" font-weight="bold" fill="#000000">E</text>
-<text x="3026.7" y="3325.2" text-anchor="middle" font-family="sans-serif" font-size="25.4" font-weight="bold" fill="#000000">S</text>
-<text x="2989.1" y="3287.6" text-anchor="middle" font-family="sans-serif" font-size="25.4" font-weight="bold" fill="#000000">W</text>
+<circle cx="3049.8" cy="3301.8" r="40.2" fill="#ffffff" stroke="#000000" stroke-width="1.20"/>
+<path d="M3049.8 3301.8L3049.8 3272.0M3049.8 3301.8L3049.8 3316.7M3049.8 3301.8L3064.7 3301.8M3049.8 3301.8L3034.9 3301.8" stroke="#000000" stroke-width="2.58" fill="none"/>
+<path d="M3049.8 3266.0L3055.8 3279.9L3043.8 3279.9z" fill="#000000"/>
+<text x="3074.9" y="3307.7" text-anchor="middle" font-family="sans-serif" font-size="16.9" font-weight="bold" fill="#000000">E</text>
+<text x="3049.8" y="3332.8" text-anchor="middle" font-family="sans-serif" font-size="16.9" font-weight="bold" fill="#000000">S</text>
+<text x="3024.8" y="3307.7" text-anchor="middle" font-family="sans-serif" font-size="16.9" font-weight="bold" fill="#000000">W</text>
 </g>
 </svg>

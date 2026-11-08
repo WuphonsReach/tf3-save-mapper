@@ -54,7 +54,7 @@ Options:
       --no-warehouses leave out the warehouses
       --rose WHERE    where the compass rose goes: lower-right (default), lower-left, upper-left,
                       upper-right, off, or X,Y (map metres) for its centre
-      --rose-size M   the rose circle's diameter in metres (default 250, or an eighth of the
+      --rose-size M   the rose circle's diameter in metres (default 250, or a twelfth of the
                       picture's shorter side when that is less)
       --no-rose       leave out the compass rose (the same as --rose off)
       --north N       which way north is drawn: game (default: up is +y, right is +x, as the
@@ -81,6 +81,13 @@ Options:
       --label A>B[=TEXT]  name the edge between nodes A and B (hex ids, either order) along its middle,
                       with TEXT or A>B, and mark its ends (repeatable)
       --edge-ids      with --label, add the edge's entity id where the strip table gives it
+      --rail-grades   colour each track by its grade (the height between its ends over its length,
+                      up or down alike), over everything but the labels, grid labels and rose,
+                      tunnels and bridges included: 14 colours from dark green on the level through
+                      yellow to dark red, a band per whole percent, and magenta at 13 % (the
+                      steepest the game's track types allow) and over (also with --png)
+      --rail-grade-limit P  the grade in percent from which a track is magenta (default 13); the
+                      other 13 colours are spread evenly below it
   -h, --help          show this help
   -V, --version       show the version";
 
@@ -155,6 +162,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut png = false;
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
+    let mut rail_grade_limit = false;
     while let Some(arg) = args.next() {
         if VECTOR_ONLY.contains(&arg.as_str()) {
             vector_only.push(arg.clone());
@@ -212,6 +220,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             }
             "--keep-dead" => keep_dead = true,
             "--vehicles" => vehicles = true,
+            "--rail-grades" => options.rail_grades = true,
+            "--rail-grade-limit" => {
+                options.rail_grade_limit =
+                    width("--rail-grade-limit", &value("--rail-grade-limit")?)?;
+                rail_grade_limit = true;
+            }
             "--label" => labels.push(label(&value("--label")?)?),
             "--edge-ids" => edge_ids = true,
             "--name" => {
@@ -226,6 +240,9 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         }
     }
     let save = save.ok_or("no save given (try --help)")?;
+    if rail_grade_limit && !options.rail_grades {
+        return Err("--rail-grade-limit needs --rail-grades".into());
+    }
     let mpp = match mpp {
         Some(m) if m < 4 && options.crop.is_none() => {
             return Err(format!("--mpp {m} needs --crop"));
@@ -316,6 +333,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         labels,
         edge_ids,
     })))
+}
+
+/// A percentage as typed: `13`, `8.5`.
+fn fmt_percent(p: f64) -> String {
+    let text = format!("{p:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
 }
 
 /// A number of metres above 0, for the option `flag`.
@@ -595,6 +618,21 @@ fn run(args: Args) -> Result<(), Failure> {
     }
     if args.vehicles {
         extra += &format!(", {} vehicles", layers.vehicles.len());
+    }
+    if args.options.rail_grades {
+        // Of the tracks in the picture.
+        let grades: Vec<f64> = shown_edges(&header, &edges, &args.options)
+            .into_iter()
+            .filter(|e| e.family == Family::Track)
+            .map(Edge::grade)
+            .collect();
+        let steepest = grades.iter().copied().fold(0.0, f64::max);
+        let limit = args.options.rail_grade_limit;
+        let over = grades.iter().filter(|&&g| g >= limit).count();
+        extra += &format!(
+            ", track grades up to {steepest:.2} % ({over} at {} % or more)",
+            fmt_percent(limit)
+        );
     }
     eprintln!(
         "{} road edges, {} track edges ({dropped} deleted ones and {sidings} industry \
@@ -1154,6 +1192,24 @@ mod tests {
         }
         assert!(parse(&["s.sav", "--zoom", "0"]).is_err());
         assert!(!run_args(&["s.sav"]).vehicles, "no vehicles by default");
+        assert!(
+            !run_args(&["s.sav"]).options.rail_grades,
+            "no grades by default"
+        );
+        assert!(run_args(&["s.sav", "--rail-grades"]).options.rail_grades);
+        // A PNG draws them too.
+        assert!(
+            run_args(&["s.sav", "--rail-grades", "--png"])
+                .options
+                .rail_grades
+        );
+        assert_eq!(run_args(&["s.sav"]).options.rail_grade_limit, 13.0);
+        let a = run_args(&["s.sav", "--rail-grades", "--rail-grade-limit", "8.5"]);
+        assert_eq!(a.options.rail_grade_limit, 8.5);
+        assert!(parse(&["s.sav", "--rail-grade-limit", "8"]).is_err());
+        assert!(parse(&["s.sav", "--rail-grades", "--rail-grade-limit", "0"]).is_err());
+        assert_eq!(fmt_percent(8.5), "8.5");
+        assert_eq!(fmt_percent(13.0), "13");
         assert!(!run_args(&["s.sav"]).coverage, "no coverage by default");
         let a = run_args(&["s.sav", "--coverage", "--no-depots"]);
         assert!(a.coverage && !a.depots);

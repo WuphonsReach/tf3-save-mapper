@@ -286,21 +286,8 @@ pub(super) fn draw_network(
         (Family::Street, ROAD, ROAD_CASING),
         (Family::Track, RAIL, RAIL_CASING),
     ];
-    let polyline = |e: &Edge| -> Vec<(f64, f64)> {
-        let c = e.bezier();
-        let steps = if e.is_curved(CURVE_TOLERANCE) {
-            ((e.length() / (8.0 * spacing)).ceil() as usize).max(1)
-        } else {
-            1
-        };
-        (0..=steps)
-            .map(|i| {
-                let p = corner.pic(bezier_point(&c, i as f64 / steps as f64));
-                (p.0 / spacing, p.1 / spacing)
-            })
-            .collect()
-    };
-    let brush_of = |w: f64| ((w / spacing).round_ties_even() as i64).max(1);
+    let polyline = |e: &Edge| polyline(e, corner, spacing);
+    let brush_of = |w: f64| brush_of(w, spacing);
 
     // Tunnels: which family's colour each pixel takes, then one blend.
     let (w, h) = (img.width, img.height);
@@ -314,18 +301,7 @@ pub(super) fn draw_network(
                 mask = vec![0; w * h];
             }
             let brush = brush_of(width(e));
-            let d = levels.dashes.get(&e.offset).copied().unwrap_or(Dashes {
-                phase: 0.0,
-                dash: super::TUNNEL_DASH,
-                gap: super::tunnel_gap(super::TUNNEL_DASH),
-            });
-            let (phase, dash, period) = (
-                d.phase / spacing,
-                d.dash / spacing,
-                (d.dash + d.gap) / spacing,
-            );
-            let trim = brush as f64 / 2.0;
-            for (a, b) in dashes(&polyline(e), phase, dash, period, trim) {
+            for (a, b) in tunnel_pieces(e, corner, spacing, brush, levels) {
                 stamp((w, h), a, b, brush, |o| mask[o] = k as u8 + 1);
             }
         }
@@ -373,6 +349,102 @@ pub(super) fn draw_network(
             }
         }
     }
+}
+
+/// Colour the edges `shade` gives a colour into `img` over the network
+/// [`draw_network`] drew, as the vector layer `grades` does: by the place
+/// `shade` gives, and within each first those in tunnels, dashed as they are
+/// there but not faded, then those on the ground, then those on bridges (as
+/// wide as the bridge's fill, inside its casing); at each level the casings
+/// (`casing` metres each side, at least a pixel wider than the line) under
+/// the colours.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn draw_grades(
+    img: &mut Image,
+    corner: &Corner,
+    spacing: f64,
+    edges: &[&Edge],
+    width: impl Fn(&Edge) -> f64,
+    levels: &Levels,
+    shade: impl Fn(&Edge) -> Option<(usize, [u8; 3])>,
+    (casing, casing_colour): (f64, [u8; 3]),
+) {
+    let mut shaded: Vec<(usize, [u8; 3], &Edge)> = edges
+        .iter()
+        .filter_map(|e| shade(e).map(|(k, c)| (k, c, *e)))
+        .collect();
+    shaded.sort_by_key(|(k, _, _)| *k);
+    for family in shaded.chunk_by(|a, b| a.0 == b.0) {
+        for level in [Some(Structure::Tunnel), None, Some(Structure::Bridge)] {
+            let at_level: Vec<_> = family
+                .iter()
+                .filter(|(_, _, e)| levels.structures.get(&e.offset).copied() == level)
+                .collect();
+            let draw = |img: &mut Image, e: &Edge, colour: [u8; 3], brush: i64| {
+                if level == Some(Structure::Tunnel) {
+                    for (a, b) in tunnel_pieces(e, corner, spacing, brush, levels) {
+                        line(img, a, b, colour, brush);
+                    }
+                } else {
+                    for pair in polyline(e, corner, spacing).windows(2) {
+                        line(img, pair[0], pair[1], colour, brush);
+                    }
+                }
+            };
+            for &&(_, _, e) in &at_level {
+                let brush = brush_of(width(e), spacing);
+                let cased = brush_of(width(e) + 2.0 * casing, spacing).max(brush + 2);
+                draw(img, e, casing_colour, cased);
+            }
+            for &&(_, colour, e) in &at_level {
+                draw(img, e, colour, brush_of(width(e), spacing));
+            }
+        }
+    }
+}
+
+/// An edge's centre line in pixel positions, a bend as chords of about 8
+/// pixels.
+fn polyline(e: &Edge, corner: &Corner, spacing: f64) -> Vec<(f64, f64)> {
+    let c = e.bezier();
+    let steps = if e.is_curved(CURVE_TOLERANCE) {
+        ((e.length() / (8.0 * spacing)).ceil() as usize).max(1)
+    } else {
+        1
+    };
+    (0..=steps)
+        .map(|i| {
+            let p = corner.pic(bezier_point(&c, i as f64 / steps as f64));
+            (p.0 / spacing, p.1 / spacing)
+        })
+        .collect()
+}
+
+/// A brush `w` metres wide in pixels, at least one.
+fn brush_of(w: f64, spacing: f64) -> i64 {
+    ((w / spacing).round_ties_even() as i64).max(1)
+}
+
+/// The dashes of an edge in a tunnel, drawn with a brush `brush` pixels wide.
+fn tunnel_pieces(
+    e: &Edge,
+    corner: &Corner,
+    spacing: f64,
+    brush: i64,
+    levels: &Levels,
+) -> Vec<((f64, f64), (f64, f64))> {
+    let d = levels.dashes.get(&e.offset).copied().unwrap_or(Dashes {
+        phase: 0.0,
+        dash: super::TUNNEL_DASH,
+        gap: super::tunnel_gap(super::TUNNEL_DASH),
+    });
+    let (phase, dash, period) = (
+        d.phase / spacing,
+        d.dash / spacing,
+        (d.dash + d.gap) / spacing,
+    );
+    let trim = brush as f64 / 2.0;
+    dashes(&polyline(e, corner, spacing), phase, dash, period, trim)
 }
 
 /// The dashes of a polyline (pixel positions) as pieces: a point `s` pixels

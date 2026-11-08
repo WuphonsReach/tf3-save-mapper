@@ -992,10 +992,10 @@ fn north_to_the_left_turns_every_layer() {
     // The rose's arrow points left.
     let rose = svg.split("id=\"compass\"").nth(1).unwrap();
     assert!(
-        rose.contains("<circle cx=\"1904.2\" cy=\"3952.2\" r=\"125.0\""),
+        rose.contains("<circle cx=\"1949.9\" cy=\"3997.9\" r=\"85.3\""),
         "{rose}"
     );
-    assert!(rose.contains("M1904.2 3952.2L1811.4 3952.2"), "{rose}");
+    assert!(rose.contains("M1949.9 3997.9L1886.5 3997.9"), "{rose}");
 }
 
 #[test]
@@ -1012,10 +1012,10 @@ fn the_rose_goes_where_it_is_asked_at_its_size() {
             .and_then(|r| r.split("<circle ").nth(1))
             .map(|c| c.split(" fill").next().unwrap().to_owned())
     };
-    // 250 m by default; 2048 / 8 is more.
+    // A twelfth of the 2048 m side by default, under 250 m.
     assert_eq!(
         at(Some(Rose::LowerRight), None).as_deref(),
-        Some("cx=\"3952.2\" cy=\"1904.2\" r=\"125.0\"")
+        Some("cx=\"3997.9\" cy=\"1949.9\" r=\"85.3\"")
     );
     assert_eq!(
         at(Some(Rose::UpperLeft), Some(400.0)).as_deref(),
@@ -1337,13 +1337,14 @@ fn the_view_record_lists_what_was_set_away_from_the_default() {
         grid: GridStep::Every(250),
         zoom: 2,
         rose: None,
+        rail_grades: true,
         settings: vec![("industries", "off".to_owned())],
         ..SvgOptions::default()
     });
     assert!(
         svg.contains(
-            "y-max=\"1024\" contour-step=\"10\" zoom=\"2\" bands=\"false\" grid-step=\"250\" \
-             rose=\"off\" industries=\"off\" generator=\"tf3map\""
+            "y-max=\"1024\" contour-step=\"10\" zoom=\"2\" rail-grades=\"on\" bands=\"false\" \
+             grid-step=\"250\" rose=\"off\" industries=\"off\" generator=\"tf3map\""
         ),
         "{}",
         svg.lines().find(|l| l.contains("<metadata>")).unwrap_or("")
@@ -1668,4 +1669,159 @@ fn a_png_fades_the_tunnels_and_cases_the_bridges() {
     assert_eq!(pixel(&cased, 50, bottom + 1), [20, 20, 20]);
     assert_ne!(pixel(&cased, 50, top - 2), [20, 20, 20]);
     assert_ne!(pixel(&plain, 50, top - 1), [20, 20, 20]);
+}
+
+#[test]
+fn rail_grades_colour_the_tracks_over_the_network_tunnels_and_all() {
+    let (header, found, mut layers) = with_structures();
+    let stream = common::stream(&edges_with_structures());
+    let table = read_model_table(&stream).unwrap();
+    layers.vehicles = read_instances(&stream, &table, &["vehicle/"]);
+    layers.labels = vec![EdgeLabel {
+        a: 100,
+        b: 101,
+        text: None,
+    }];
+    let draw = |options: &SvgOptions| {
+        let mut out = Vec::new();
+        write_svg(&mut out, &header, &found, &layers, options).unwrap();
+        String::from_utf8(out).unwrap()
+    };
+    assert!(!draw(&SvgOptions::default()).contains("id=\"grades"));
+    let svg = draw(&SvgOptions {
+        rail_grades: true,
+        ..SvgOptions::default()
+    });
+    let at = |id: &str| {
+        svg.find(&format!("<g id=\"{id}\""))
+            .unwrap_or_else(|| panic!("no {id}"))
+    };
+    // An overlay: over everything drawn from the save, the vehicles
+    // included, and under the labels, the grid's labels and the rose.
+    assert!(at("bridges") < at("vehicles"));
+    assert!(at("vehicles") < at("grades"));
+    assert!(at("grades") < at("labels"));
+    assert!(at("labels") < at("grid-labels"));
+    // The key: over the grid's labels, under the rose, a row for the rails
+    // numbered 0 to 13 at its gaps.
+    assert!(at("grid-labels") < at("grades-key"));
+    assert!(at("grades-key") < at("compass"));
+    let key = &svg[at("grades-key")..at("compass")];
+    assert!(key.contains("<g class=\"key-row\" data-family=\"rail\" data-limit=\"13\">"));
+    assert_eq!(key.matches("<rect ").count(), 1 + 14, "{key}");
+    assert!(key.contains(">0</text>") && key.contains(">13</text>") && key.contains(">%</text>"));
+    assert!(key.contains(">Rail Grade</text>"));
+    let grades = &svg[at("grades")..at("labels")];
+    // The tunnel's track, level: the first colour, dashed as the tunnel is,
+    // not faded, its casing dashed with it.
+    assert!(
+        grades.contains(
+            "<g id=\"grades-rail-tunnel\" class=\"layer\" data-layer=\"grades-rail-tunnel\" \
+             inkscape:groupmode=\"layer\" inkscape:label=\"Grades: Rails in tunnels\" \
+             stroke-width=\"7.25\" stroke-linecap=\"butt\" stroke-dasharray=\"48 32\" \
+             data-limit=\"13\">\n\
+             <g class=\"casing\" stroke=\"#1e1e1e\" stroke-width=\"8.75\">\n\
+             <path stroke-dashoffset=\"0.0\" d=\"M3348.0 1874.0L3448.0 1874.0\"/>\n</g>\n\
+             <path data-a=\"7300\" data-b=\"7301\" data-grade=\"0.00\" stroke=\"#006837\" \
+             stroke-dashoffset=\"0.0\" d=\"M3348.0 1874.0L3448.0 1874.0\"/>"
+        ),
+        "{grades}"
+    );
+    assert!(!grades.contains("opacity"));
+    // On the ground: 38.75 m up over 100 m, over the 13 % limit, magenta;
+    // the level track on from the tunnel the first colour.
+    assert!(grades.contains("<g id=\"grades-rail\" "));
+    assert!(grades.contains("data-a=\"66\" data-b=\"67\" data-grade=\"38.75\" stroke=\"#c51b8a\""));
+    assert!(
+        grades.contains("data-a=\"7301\" data-b=\"7302\" data-grade=\"0.00\" stroke=\"#006837\"")
+    );
+    // No road: not the first edge, not the road bridge, so no bridge sublayer.
+    assert!(!grades.contains("data-a=\"64\""));
+    assert!(!grades.contains("data-a=\"7310\""));
+    assert!(!grades.contains("grades-rail-bridge"));
+    // A casing and a colour for each track.
+    let tracks = found.iter().filter(|e| e.family == Family::Track).count();
+    assert_eq!(grades.matches("<path ").count(), 2 * tracks, "{grades}");
+    assert_eq!(grades.matches("data-grade=").count(), tracks);
+
+    // A lower limit spreads the colours over less: 38.75 % is still over it,
+    // and the view record says so.
+    let svg = draw(&SvgOptions {
+        rail_grades: true,
+        rail_grade_limit: 8.5,
+        ..SvgOptions::default()
+    });
+    assert!(svg.contains("data-limit=\"8.5\""));
+    assert!(svg.contains("rail-grades=\"on\" rail-grade-limit=\"8.5\""));
+    // Its key in one decimal throughout.
+    assert!(svg.contains(">0.0</text>") && svg.contains(">8.5</text>"));
+    assert!(!svg.contains(">0</text>"));
+}
+
+#[test]
+fn a_png_colours_the_grades_over_the_tunnel_dashes() {
+    let (header, found, layers) = with_structures();
+    let options = SvgOptions {
+        crop: Some(Crop {
+            x: 1380.0,
+            y: -815.0,
+            radius: 80.0,
+        }),
+        metres_per_pixel: 1.0,
+        ..SvgOptions::default()
+    };
+    let draw = |options: &SvgOptions| {
+        let mut out = Vec::new();
+        write_png(
+            &mut out,
+            &header,
+            &found,
+            layers.terrain.as_ref(),
+            &layers.structures,
+            options,
+        )
+        .unwrap();
+        decode_png(&out)
+    };
+    let plain = draw(&options);
+    let graded = draw(&SvgOptions {
+        rail_grades: true,
+        ..options.clone()
+    });
+    let (level, casing) = ([0, 104, 55], [30, 30, 30]);
+    // A dash in the tunnel (as in the test above) and the level track on
+    // from it take the first colour at full strength; a gap in the dashes
+    // is as it was.
+    assert_eq!(pixel(&graded, 10, 115), level);
+    assert_eq!(pixel(&graded, 25, 115), level);
+    assert_eq!(pixel(&graded, 130, 115), level);
+    assert_eq!(pixel(&graded, 15, 115), pixel(&plain, 15, 115));
+    // Every pixel that changed is the colour or the casing, on the track's
+    // band: the 7 px line and a pixel of casing each side (the road bridge
+    // above it is as it was).
+    let (w, h, _) = graded;
+    let mut rows: std::collections::BTreeMap<u32, std::collections::BTreeSet<[u8; 3]>> =
+        Default::default();
+    for j in 0..h {
+        for i in 0..w {
+            let p = pixel(&graded, i, j);
+            if p != pixel(&plain, i, j) {
+                assert!(p == level || p == casing, "{i}, {j}: {p:?}");
+                rows.entry(j).or_default().insert(p);
+            }
+        }
+    }
+    let coloured: Vec<u32> = rows
+        .iter()
+        .filter(|(_, c)| c.contains(&level))
+        .map(|(j, _)| *j)
+        .collect();
+    let cased: Vec<u32> = rows
+        .iter()
+        .filter(|(_, c)| !c.contains(&level))
+        .map(|(j, _)| *j)
+        .collect();
+    assert_eq!(coloured.len(), 7, "{rows:?}");
+    assert!(coloured.contains(&115));
+    assert_eq!(cased, [coloured[0] - 1, coloured[6] + 1], "{rows:?}");
 }

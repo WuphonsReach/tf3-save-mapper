@@ -13,6 +13,8 @@ Where an entry says how many saves something is in, the count is from a model co
 - **Mod depots:** the buffer-stop depot and a Chinese EMU depot mod are not drawn.
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
+- **Grades for roads and tram lines**, as `--rail-grades` does for tracks (asked for).
+- **Map key options**: where the key is drawn, how big it is, and the compass folded into its box (asked for).
 - **Possible layers** the notes make room for: speed limits, electrified track, tram streets, parcel cells, lot tint, terrain changes between two saves, sunrise and sunset on the rose.
 - **Blocked on the format:** towns, signals' positions, traffic lights, line routes, industry figures.
 
@@ -50,6 +52,14 @@ The roundhouse and the modern depot are drawn from their pieces' model boxes (`i
 - **Rail platform end pieces** `perron_5_end` and `perron_10_end` of all three eras (in 4 to 5 of the 8 saves) are not drawn. The edge pieces were left out on purpose for other kinds (`station-pieces.md`: as separate boxes their outlines ran inside every cell). Needs: a check against a screenshot of whether the platform's box already covers its end.
 - **Ship depot rings** A ship depot's ring in the game is 0 to 66 m from its origin, in no fixed direction (`depots.md`); `--coverage` draws it on the origin. Needs: what the game centres it on.
 - **Install and mods folder detection** Untested on Windows and macOS; the Flatpak mods folder is a guess. `--game` and `--mods` are the way round it.
+
+## Grades for roads and tram lines
+
+`--rail-grades` colours each track by its grade (`svg/grades.rs`); roads and tram lines are to get the same. A family is one entry in `grades::FAMILIES`: an id for the sublayers (`grades-road`), which edges it takes, its option and its limit (the grade at which the last colour starts), so roads can have their own. The track limit's default, 13 %, is the track types' `maxSlope` in the install's `infrastructure/track.zip`; the street templates in `street.zip` set no slope, so the road default has to be found elsewhere. Needs: the options (`--road-grades`, `--tram-grades` and their `-limit` options) and their view record names, a default limit for each, and for trams a way to tell a tram lane: the mapper keeps no lane modes today (see Electrified track below), and a tram runs on a street edge, so its edges are also road edges and the two sublayers would overlap.
+
+## Map key options
+
+The grades key (`grades::key`) is a white box along the bottom of the picture, in the middle, 40 % of the picture's width, with a row per grade family drawn (one today, up to three with roads and trams). The rose is a separate disc in its own corner (`--rose`, `--rose-size`). Asked for, later: an option for where the key goes (the corners and the bottom middle, as `--rose` takes them), one for its size (a share of the picture's width, or metres, as `--rose-size`), and one to fold the rose into the key's box so the two make one block. Needs: the key's placement and size as options carried in `SvgOptions` and the view record, the box grown to hold the rose beside the rows when folded, and a rule for which wins when the key and the rose are put in the same corner. Further overlay keys (speeds) would share the box as more rows.
 
 ## Possible layers
 
