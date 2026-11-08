@@ -1,13 +1,16 @@
-//! Grades: each edge of a kind asked for (`FAMILIES`; the tracks with
-//! `SvgOptions::rail_grades`) coloured by its grade ([`Edge::grade`]) in the
+//! Grades: each edge of a kind asked for (`FAMILIES`: roads with
+//! `SvgOptions::road_grades`, tram lines with `tram_grades`, tracks with
+//! `rail_grades`) coloured by its grade ([`Edge::grade`]) in the
 //! layer `grades`, one of the overlays drawn over everything taken from the
 //! save, the tunnels' and bridges' edges too.
 //!
 //! The colours are 14 bands, from dark green on the level through yellow to
 //! dark red, and magenta at or over the family's limit: each band is a
-//! thirteenth of the limit wide, so at the default 13 % (the steepest the
-//! game's track types allow, `maxSlope`) one per whole percent. A lower limit
-//! squeezes the same 14 colours into it. Each coloured line has a thin
+//! thirteenth of the limit wide, so at the tracks' default 13 % (the
+//! steepest the game's track types allow, `maxSlope`) one per whole percent.
+//! Roads and tram lines default to 20 %: their types set no limit, but the
+//! saves show the game builds them up to that. Another limit spreads the
+//! same 14 colours under it. Each coloured line has a thin
 //! near-black casing, so the colours stand out on any terrain. An edge in a
 //! tunnel keeps its dashes, so the layer still says what runs underground;
 //! one on a bridge is as wide as the bridge's fill, so the bridge's own
@@ -45,8 +48,10 @@ pub(super) const PALETTE: [[u8; 3]; 14] = [
 /// The casing along each side of a coloured line, metres, and its colour.
 pub(super) const CASING: f64 = 0.75;
 pub(super) const CASING_COLOUR: [u8; 3] = [30, 30, 30];
-/// The limit the colours are spread over when none is given, percent.
-pub(super) const DEFAULT_LIMIT: f64 = 13.0;
+/// The limits the colours are spread over when none is given, percent: the
+/// tracks', and the roads' and tram lines'.
+pub(super) const RAIL_DEFAULT_LIMIT: f64 = 13.0;
+pub(super) const STREET_DEFAULT_LIMIT: f64 = 20.0;
 
 /// A kind of edge whose grades can be coloured.
 pub(super) struct GradeFamily {
@@ -65,6 +70,22 @@ fn is_track(e: &Edge) -> bool {
     e.family == Family::Track
 }
 
+fn road_grades(options: &SvgOptions) -> bool {
+    options.road_grades
+}
+
+fn road_limit(options: &SvgOptions) -> f64 {
+    options.road_grade_limit
+}
+
+fn tram_grades(options: &SvgOptions) -> bool {
+    options.tram_grades
+}
+
+fn tram_limit(options: &SvgOptions) -> f64 {
+    options.tram_grade_limit
+}
+
 fn rail_grades(options: &SvgOptions) -> bool {
     options.rail_grades
 }
@@ -73,15 +94,34 @@ fn rail_limit(options: &SvgOptions) -> f64 {
     options.rail_grade_limit
 }
 
-/// Bottom to top: roads, then tram lines, then rails.
-pub(super) const FAMILIES: &[GradeFamily] = &[GradeFamily {
-    id: "rail",
-    label: "Rails",
-    key_label: "Rail Grade",
-    is: is_track,
-    asked: rail_grades,
-    limit: rail_limit,
-}];
+/// Bottom to top: roads (a street with tram lanes among them), then tram
+/// lines of their own, then rails. No edge is in two.
+pub(super) const FAMILIES: &[GradeFamily] = &[
+    GradeFamily {
+        id: "road",
+        label: "Roads",
+        key_label: "Road Grade",
+        is: Edge::is_road,
+        asked: road_grades,
+        limit: road_limit,
+    },
+    GradeFamily {
+        id: "tram",
+        label: "Tram lines",
+        key_label: "Tram Grade",
+        is: Edge::is_tram_only,
+        asked: tram_grades,
+        limit: tram_limit,
+    },
+    GradeFamily {
+        id: "rail",
+        label: "Rails",
+        key_label: "Rail Grade",
+        is: is_track,
+        asked: rail_grades,
+        limit: rail_limit,
+    },
+];
 
 /// Whether any grades are asked for.
 pub(super) fn any(options: &SvgOptions) -> bool {
@@ -301,7 +341,7 @@ fn key_marks(numbers: &[String], font: f64, pitch: f64) -> Vec<usize> {
 
 /// The layer `grades-key`: a white panel along the bottom of the picture,
 /// in the middle, with a row per family drawn (top to bottom as `FAMILIES`
-/// has them, so rails at the bottom): its name, its 14 colours with a gap
+/// has them: roads, tram lines, rails): its name, its 14 colours with a gap
 /// between each two, and `%`; under them the grade at each gap, the first
 /// at the strip's start; the last colour runs from the limit up, so the
 /// last number is the limit. The key is 40 % of the picture's width.
@@ -415,7 +455,7 @@ mod tests {
 
     #[test]
     fn a_band_per_whole_percent_at_the_default_limit() {
-        let b = |g| band(g, DEFAULT_LIMIT);
+        let b = |g| band(g, RAIL_DEFAULT_LIMIT);
         assert_eq!(
             [b(0.0), b(0.99), b(1.0), b(2.5), b(3.0), b(3.99)],
             [0, 0, 1, 2, 3, 3]

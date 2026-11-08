@@ -28,6 +28,11 @@ const BASE_TYPE_MAX: usize = 512;
 const RECORD_MAX: usize = TEMPLATE_WINDOW + 4 + MOD_NAME_MAX + 4 + BASE_TYPE_MAX;
 /// TRAIN and ELECTRIC_TRAIN, by their place in the game's `TransportMode` list.
 const TRAIN_MODES: u32 = (1 << 7) | (1 << 8);
+/// CAR, BUS and TRUCK.
+const ROAD_MODES: u32 = (1 << 2) | (1 << 3) | (1 << 4);
+/// TRAM, ELECTRIC_TRAM, TRAM_TRACK and ELECTRIC_TRAM_TRACK. A track lane
+/// carries the last two as well as the train's.
+const TRAM_MODES: u32 = (1 << 5) | (1 << 6) | (1 << 14) | (1 << 15);
 /// Records less than this far apart belong to one table.
 const CLUSTER_GAP: usize = 1 << 20;
 const MAX_ID: u32 = 1 << 24;
@@ -68,11 +73,42 @@ pub struct Edge {
     /// street 16, a track 4). The lanes repeat the street type's own, so this
     /// is its profile width. `None` if the lanes did not read.
     pub width: Option<f32>,
+    /// The transport-mode bits of all its lanes together, in the order of
+    /// the game's `TransportMode` list (PERSON 0, CARGO 1, CAR 2 ...). `None`
+    /// if the lanes did not read.
+    pub modes: Option<u32>,
     /// Offset of the record's first byte in the stream.
     pub offset: usize,
 }
 
 impl Edge {
+    /// Whether road vehicles run on it: a lane carries cars, buses or trucks
+    /// and none carries trains (a street with tram lanes is a road too).
+    /// When the lanes did not read, a type under `street/` other than
+    /// `street/tram/`.
+    pub fn is_road(&self) -> bool {
+        match self.modes {
+            Some(m) => m & ROAD_MODES != 0 && m & TRAIN_MODES == 0,
+            None => self
+                .template
+                .as_deref()
+                .is_some_and(|t| t.starts_with("street/") && !t.starts_with("street/tram/")),
+        }
+    }
+
+    /// Whether it is tram line only: a lane carries trams, and none carries
+    /// road vehicles or trains (the game's `street/tram/` types). When the
+    /// lanes did not read, a type under `street/tram/`.
+    pub fn is_tram_only(&self) -> bool {
+        match self.modes {
+            Some(m) => m & TRAM_MODES != 0 && m & (ROAD_MODES | TRAIN_MODES) == 0,
+            None => self
+                .template
+                .as_deref()
+                .is_some_and(|t| t.starts_with("street/tram/")),
+        }
+    }
+
     /// The last part of the template path, or `unknown`.
     pub fn type_name(&self) -> &str {
         self.template
@@ -206,9 +242,9 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
     if !plausible(a, b, p0, p1, t0, t1) {
         return None;
     }
-    let (template, family, width) = match record_type(data, start) {
-        Some(t) => (Some(t.template), t.family, t.width),
-        None => (None, Family::Street, None),
+    let (template, family, width, modes) = match record_type(data, start) {
+        Some(t) => (Some(t.template), t.family, t.width, t.modes),
+        None => (None, Family::Street, None, None),
     };
     Some(Edge {
         a,
@@ -220,6 +256,7 @@ fn parse_record(data: &[u8], start: usize) -> Option<Edge> {
         template,
         family,
         width,
+        modes,
         offset: start,
     })
 }
@@ -255,6 +292,7 @@ struct RecordType {
     template: String,
     family: Family,
     width: Option<f32>,
+    modes: Option<u32>,
     /// Offset just after the base type: where the next record starts.
     end: usize,
     /// Whether the lanes read, which ties the record to its start: the bytes
@@ -308,6 +346,7 @@ fn record_type(data: &[u8], start: usize) -> Option<RecordType> {
         template,
         family,
         width: lanes.and_then(|l| l.width),
+        modes: lanes.map(|l| l.modes),
         end: base_at + 4 + base_len,
         lanes: lanes.is_some(),
     })
@@ -514,6 +553,7 @@ mod tests {
             template: Some("street/town/town_old_small".into()),
             family: Family::Street,
             width: Some(16.0),
+            modes: None,
             offset: 0,
         }
     }

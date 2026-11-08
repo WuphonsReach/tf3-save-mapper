@@ -186,6 +186,7 @@ mod tests {
             template: Some("track/standard".into()),
             family,
             width: Some(4.0),
+            modes: None,
             offset,
         }
     }

@@ -123,6 +123,15 @@ pub struct SvgOptions {
     /// The grade, percent, from which a track takes the last colour; the
     /// other 13 colours are spread evenly below it.
     pub rail_grade_limit: f64,
+    /// Colour each road (a street with tram lanes too) by its grade, as
+    /// `rail_grades` the tracks.
+    pub road_grades: bool,
+    /// As `rail_grade_limit`, for the roads.
+    pub road_grade_limit: f64,
+    /// Colour each tram line of its own (no road lanes) by its grade.
+    pub tram_grades: bool,
+    /// As `rail_grade_limit`, for the tram lines.
+    pub tram_grade_limit: f64,
     /// The build that draws, for the view record's `generator-commit`
     /// (the caller knows it; the core does not). Left out when `None`.
     pub generator_commit: Option<&'static str>,
@@ -152,7 +161,11 @@ impl Default for SvgOptions {
             crop: None,
             zoom: 1,
             rail_grades: false,
-            rail_grade_limit: grades::DEFAULT_LIMIT,
+            rail_grade_limit: grades::RAIL_DEFAULT_LIMIT,
+            road_grades: false,
+            road_grade_limit: grades::STREET_DEFAULT_LIMIT,
+            tram_grades: false,
+            tram_grade_limit: grades::STREET_DEFAULT_LIMIT,
             generator_commit: None,
             settings: Vec::new(),
         }
@@ -897,10 +910,34 @@ fn non_default_settings(options: &SvgOptions) -> Vec<(&'static str, String, bool
     if options.raster {
         found.push(("terrain", "raster".to_owned(), true));
     }
-    if options.rail_grades {
-        found.push(("rail-grades", "on".to_owned(), true));
-        if options.rail_grade_limit != default.rail_grade_limit {
-            found.push(("rail-grade-limit", fmt_g(options.rail_grade_limit), false));
+    for (asked, limit, default_limit, name, limit_name) in [
+        (
+            options.road_grades,
+            options.road_grade_limit,
+            default.road_grade_limit,
+            "road-grades",
+            "road-grade-limit",
+        ),
+        (
+            options.tram_grades,
+            options.tram_grade_limit,
+            default.tram_grade_limit,
+            "tram-grades",
+            "tram-grade-limit",
+        ),
+        (
+            options.rail_grades,
+            options.rail_grade_limit,
+            default.rail_grade_limit,
+            "rail-grades",
+            "rail-grade-limit",
+        ),
+    ] {
+        if asked {
+            found.push((name, "on".to_owned(), true));
+            if limit != default_limit {
+                found.push((limit_name, fmt_g(limit), false));
+            }
         }
     }
     if !options.bands {
@@ -1365,6 +1402,7 @@ mod tests {
                 Family::Street
             },
             width,
+            modes: None,
             offset: 0,
         }
     }

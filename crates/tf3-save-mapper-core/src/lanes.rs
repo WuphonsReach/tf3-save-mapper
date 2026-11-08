@@ -212,6 +212,7 @@ mod tests {
             template: None,
             family: crate::edges::Family::Street,
             width: None,
+            modes: None,
             offset: 0,
         };
         let mut edges = vec![edge(1, 2), edge(2, 3), edge(3, 4)];
