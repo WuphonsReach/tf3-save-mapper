@@ -101,6 +101,45 @@ impl Edge {
         ]
     }
 
+    /// Horizontal length along the curve, metres: the chord on a straight
+    /// edge, a polyline of samples at most 2 m apart on a bent one.
+    pub fn run(&self) -> f64 {
+        if !self.is_curved(0.001) {
+            return self.length();
+        }
+        let c = self.bezier();
+        let n = ((self.length() / 2.0).ceil() as usize).clamp(8, 4096);
+        let at = |t: f64| {
+            let u = 1.0 - t;
+            let w = [u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t];
+            (
+                w[0] * c[0].0 + w[1] * c[1].0 + w[2] * c[2].0 + w[3] * c[3].0,
+                w[0] * c[0].1 + w[1] * c[1].1 + w[2] * c[2].1 + w[3] * c[3].1,
+            )
+        };
+        let mut run = 0.0;
+        let mut last = c[0];
+        for k in 1..=n {
+            let p = at(k as f64 / n as f64);
+            run += (p.0 - last.0).hypot(p.1 - last.1);
+            last = p;
+        }
+        run
+    }
+
+    /// The edge's grade in percent, up or down alike: the height between its
+    /// ends over its [`run`](Self::run). One number per edge, as the game's
+    /// build tool shows one slope per segment; along an edge where a climb
+    /// starts or ends the grade eases in, and this is its mean.
+    pub fn grade(&self) -> f64 {
+        let run = self.run();
+        if run > 0.0 {
+            100.0 * (f64::from(self.p1[2]) - f64::from(self.p0[2])).abs() / run
+        } else {
+            0.0
+        }
+    }
+
     /// True when an inner control point lies more than `tolerance` metres
     /// from the chord. The curve stays inside its control points' hull, so no
     /// bend that leaves the chord by more is missed; the curve's middle alone
@@ -487,6 +526,41 @@ mod tests {
         assert!(!e.is_curved(0.25));
         let c = e.bezier();
         assert_eq!((c[0], c[3]), ((0.0, 0.0), (60.0, 80.0)));
+    }
+
+    #[test]
+    fn a_grade_is_the_rise_over_the_run_either_way() {
+        let up = edge(
+            [0.0, 0.0, 10.0],
+            [60.0, 80.0, 15.0],
+            [60.0, 80.0, 5.0],
+            [60.0, 80.0, 5.0],
+        );
+        assert_eq!((up.run(), up.grade()), (100.0, 5.0));
+        let down = edge(
+            [60.0, 80.0, 15.0],
+            [0.0, 0.0, 10.0],
+            [-60.0, -80.0, -5.0],
+            [-60.0, -80.0, -5.0],
+        );
+        assert_eq!(down.grade(), 5.0);
+        // A quarter circle of radius 100 (tangents 4/3 (sqrt 2 - 1) x 3 x r
+        // long, its Bezier within 0.03 % of the arc), rising 6 m: 6 m over
+        // 157.1 m, not over the 141.4 m chord.
+        let k = (4.0 / 3.0 * (2f64.sqrt() - 1.0) * 3.0 * 100.0) as f32;
+        let bend = edge(
+            [100.0, 0.0, 0.0],
+            [0.0, 100.0, 6.0],
+            [0.0, k, 0.0],
+            [-k, 0.0, 0.0],
+        );
+        let quarter = std::f64::consts::FRAC_PI_2 * 100.0;
+        assert!((bend.run() - quarter).abs() < 0.1, "{}", bend.run());
+        assert!(
+            (bend.grade() - 600.0 / quarter).abs() < 0.01,
+            "{}",
+            bend.grade()
+        );
     }
 
     #[test]

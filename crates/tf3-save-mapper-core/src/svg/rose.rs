@@ -8,7 +8,7 @@
 
 use super::{Picture, Rose, View, fmt1, fmt2, layer};
 
-/// Metres across the circle by default, or an eighth of the picture's short
+/// Metres across the circle by default, or a twelfth of the picture's short
 /// side when that is less.
 const DIAMETER: f64 = 250.0;
 
@@ -19,7 +19,7 @@ pub(super) fn compass(
     diameter: Option<f64>,
 ) -> Vec<String> {
     let (w, h) = (view.width, view.height);
-    let r = diameter.unwrap_or_else(|| DIAMETER.min(w.min(h) / 8.0)) / 2.0;
+    let r = diameter.unwrap_or_else(|| DIAMETER.min(w.min(h) / 12.0)) / 2.0;
     let gap = 0.15 * r;
     let (left, top) = (view.u0 + gap + r, view.v0 + gap + r);
     let (right, bottom) = (view.u0 + w - gap - r, view.v0 + h - gap - r);
@@ -90,24 +90,24 @@ mod tests {
     #[test]
     fn the_rose_sits_in_the_lower_right_with_north_up() {
         let p = Picture {
-            width: 4096.0,
-            height: 2048.0,
+            width: 6144.0,
+            height: 3072.0,
             north: crate::svg::North::Game,
         };
         let lines = compass(
             &p,
-            &View::new(&p, (-2048.0, 2048.0, -1024.0, 1024.0)),
+            &View::new(&p, (-3072.0, 3072.0, -1536.0, 1536.0)),
             Rose::LowerRight,
             None,
         );
         let text = lines.join("\n");
-        // 250 m across, 18.75 m from the corner.
+        // 250 m across (a twelfth of 3072 m is more), 18.75 m from the corner.
         assert!(
-            text.contains("<circle cx=\"3952.2\" cy=\"1904.2\" r=\"125.0\""),
+            text.contains("<circle cx=\"6000.2\" cy=\"2928.2\" r=\"125.0\""),
             "{text}"
         );
         // The arrow points up the picture: its tip is above the centre.
-        assert!(text.contains("M3952.2 1904.2L3952.2 1811.4"), "{text}");
+        assert!(text.contains("M6000.2 2928.2L6000.2 2835.4"), "{text}");
         assert!(text.contains(">W</text>"));
     }
 
@@ -120,7 +120,8 @@ mod tests {
         };
         let view = View::new(&p, (-400.0, 400.0, -200.0, 200.0));
         let text = compass(&p, &view, Rose::LowerRight, None).join("");
-        assert!(text.contains("r=\"25.0\""), "{text}");
+        // A twelfth of the 400 m side.
+        assert!(text.contains("r=\"16.7\""), "{text}");
         // A size asked for is not capped.
         let text = compass(&p, &view, Rose::UpperLeft, Some(300.0)).join("");
         assert!(
