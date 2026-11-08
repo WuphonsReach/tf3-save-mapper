@@ -11,8 +11,8 @@ use common::{
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
-    Crop, EdgeLabel, GridLines, GridStep, North, Rose, is_warehouse_piece, shown_edges,
-    unmatched_labels, warehouse_count,
+    Crop, EdgeLabel, GridLines, GridStep, MapText, North, Rose, TextSize, TextStyle,
+    is_warehouse_piece, shown_edges, texts_outside, unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
@@ -950,6 +950,79 @@ fn labels_name_the_edges_asked_for() {
     let shown = shown_edges(&header, &found, &SvgOptions::default());
     let missing = unmatched_labels(&layers.labels, &shown);
     assert_eq!(missing, [&layers.labels[2]]);
+}
+
+fn render_texts(texts: &[MapText], options: &SvgOptions) -> String {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let found = read_edges(&stream).unwrap();
+    let layers = Layers {
+        labels: vec![EdgeLabel {
+            a: 100,
+            b: 101,
+            text: None,
+        }],
+        texts: texts.to_vec(),
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &found, &layers, options).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn texts_go_over_the_labels_and_under_the_grid_labels() {
+    let text = |x, y, size, words: &str| MapText {
+        x,
+        y,
+        size,
+        style: TextStyle::Regular,
+        text: words.into(),
+    };
+    let texts = [
+        text(-900, 450, TextSize::Large, "Town"),
+        text(100, -200, TextSize::Small, "Farm"),
+        // Off the 4096 x 2048 m map.
+        text(3000, 0, TextSize::Medium, "Nowhere"),
+    ];
+    let svg = render_texts(&texts, &SvgOptions::default());
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("edge-labels") < at("texts") && at("texts") < at("grid-labels"));
+    assert!(at("grid-labels") < at("compass"));
+    // (-900, 450) is 1148 m from the left and 574 m from the top. The
+    // 4096 x 2048 m map's shorter side is about 2 km: 1.3 to the power of
+    // log2(2048 / 8000) times the 140 m of a large text on an 8 km view.
+    assert!(
+        svg.contains(
+            "data-x=\"-900\" data-y=\"450\" data-size=\"large\" data-style=\"regular\"><rect "
+        ) && svg.contains(
+            "<text x=\"1148.0\" y=\"603.3\" font-size=\"83.5872\" fill=\"#ffffff\">Town</text>"
+        ),
+        "{svg}"
+    );
+    assert!(svg.contains(">Farm</text>") && !svg.contains(">Nowhere</text>"));
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let options = SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        metres_per_pixel: 4.0,
+        ..SvgOptions::default()
+    };
+    let outside: Vec<&str> = texts_outside(&header, &texts, &options)
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect();
+    assert_eq!(outside, ["Farm", "Nowhere"]);
+    let crop = render_texts(&texts, &options);
+    assert!(crop.contains(">Town</text>") && !crop.contains(">Farm</text>"));
+    let whole: Vec<&MapText> = texts_outside(&header, &texts, &SvgOptions::default());
+    assert_eq!(whole.len(), 1);
+    // No texts, no layer.
+    assert!(!render_texts(&[], &SvgOptions::default()).contains("id=\"texts\""));
 }
 
 #[test]

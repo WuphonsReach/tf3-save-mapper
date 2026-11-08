@@ -26,6 +26,7 @@ mod raster;
 mod rose;
 mod stations;
 mod terrain;
+mod texts;
 mod vehicles;
 mod warehouses;
 
@@ -44,6 +45,7 @@ pub use grid::{GridLines, GridStep};
 pub use industries::faces_with_measured;
 pub use labels::{EdgeLabel, unmatched as unmatched_labels};
 pub use stations::is_station_piece;
+pub use texts::{MapText, TextSize, TextStyle};
 pub use warehouses::{count as warehouse_count, is_warehouse_piece};
 
 const ROAD_COLOUR: &str = "#323232";
@@ -260,6 +262,8 @@ pub struct Layers {
     pub vehicle_names: HashMap<usize, String>,
     /// Edges to label.
     pub labels: Vec<EdgeLabel>,
+    /// Words to write at map points (`texts`), in the order drawn.
+    pub texts: Vec<MapText>,
     /// Edge entity ids by the edge's offset in the stream, where known
     /// (`strips::edge_ids`): on the edges' paths and in their labels.
     pub edge_ids: HashMap<usize, u32>,
@@ -428,6 +432,28 @@ pub fn shown_edges<'a>(header: &Header, edges: &'a [Edge], options: &SvgOptions)
             None => Vec::new(),
         },
     }
+}
+
+/// The texts whose point lies outside the picture (off the map, or off the
+/// crop), which the map leaves out.
+pub fn texts_outside<'a>(
+    header: &Header,
+    texts: &'a [MapText],
+    options: &SvgOptions,
+) -> Vec<&'a MapText> {
+    let picture = Picture::new(header, options.north);
+    let view = match options.crop {
+        None => Some(View::whole(&picture, header)),
+        Some(c) => c.bounds(header).map(|b| View::new(&picture, b)),
+    };
+    texts
+        .iter()
+        .filter(|t| {
+            !view
+                .as_ref()
+                .is_some_and(|v| v.reaches(f64::from(t.x), f64::from(t.y), 0.0))
+        })
+        .collect()
 }
 
 /// Write the map: the terrain and the other `layers`, and the roads and
@@ -631,6 +657,15 @@ pub fn write_svg(
             options.metres_per_pixel,
             cut,
         ),
+    )?;
+    let texts: Vec<&MapText> = layers
+        .texts
+        .iter()
+        .filter(|t| view.reaches(f64::from(t.x), f64::from(t.y), 0.0))
+        .collect();
+    write_lines(
+        out,
+        &texts::layers(&picture, &texts, texts::view_scale(w.min(h))),
     )?;
     write_lines(out, &grid_labels)?;
     write_lines(out, &grades::key(&view, options))?;

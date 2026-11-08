@@ -24,6 +24,13 @@ draw() {
 # rail depot to the east.
 draw "WR26A Giga-Tv3 1919 1107-1558.sav" peterlee-refinery.svg \
     --crop 8460,-3320,1050 --mpp 2
+# The maintainer's own editor map: two small towns, the logging camp between
+# them and the saw mill north-west of Deming, named by hand with --text (the
+# save does not say where its towns are).
+draw "WR26B Giga Dry v1 1108-1359 generate main connections.sav" texts-deming-quemado.svg \
+    --crop 1700,-8000,4200 --text "-410,-7671=Deming" --text "5163,-9172=Quemado" \
+    --text "2019,-9340,small=Deming Logging Camp" \
+    --text "-1708,-5795,small=Deming Saw Mill"
 # mod.io 6433459: a wide road in a tunnel under a warehouse.
 draw 6433459.sav warehouse-tunnel.svg --crop -1482,1231,480 --mpp 1
 

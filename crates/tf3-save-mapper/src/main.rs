@@ -8,8 +8,9 @@ use std::process::ExitCode;
 
 use tf3_save_mapper_core::install::{self, DEPOT_KINDS};
 use tf3_save_mapper_core::svg::{
-    Crop, EdgeLabel, GridLines, GridStep, North, Rose, faces_with_measured, is_station_piece,
-    is_warehouse_piece, shown_edges, unmatched_labels, warehouse_count,
+    Crop, EdgeLabel, GridLines, GridStep, MapText, North, Rose, TextSize, TextStyle,
+    faces_with_measured, is_station_piece, is_warehouse_piece, shown_edges, texts_outside,
+    unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, Structure, SvgOptions, container,
@@ -81,6 +82,17 @@ Options:
       --label A>B[=TEXT]  name the edge between nodes A and B (hex ids, either order) along its middle,
                       with TEXT or A>B, and mark its ends (repeatable)
       --edge-ids      with --label, add the edge's entity id where the strip table gives it
+      --text X,Y[,SIZE[,STYLE]]=TEXT  write TEXT centred on map point X,Y (whole metres, x east,
+                      y north), over everything but the grid labels, the grades key and the rose
+                      (repeatable); SIZE small, medium (default) or large: 60, 90 or 140 m type
+                      when the picture's shorter side is 8 km or more, as the industry badges keep
+                      their size; 1.3 times smaller for each halving below that, so a name does
+                      not cover a close sectional (69 m for medium at 4 km); STYLE regular (the only
+                      one: white type on a dark rounded box). A text whose point is outside the
+                      picture is left out
+      --text-file FILE  the same from a file, one X,Y[,SIZE[,STYLE]]=TEXT per line; blank lines
+                      and lines starting with # are skipped (repeatable; with --text, drawn in the
+                      order given, a later one over an earlier)
       --rail-grades   colour each track by its grade (the height between its ends over its length,
                       up or down alike), over everything but the labels, grid labels and rose,
                       tunnels and bridges included: 14 colours from dark green on the level through
@@ -120,6 +132,8 @@ const SVG_ONLY: &[&str] = &[
     "--name",
     "--label",
     "--edge-ids",
+    "--text",
+    "--text-file",
     "--coverage",
 ];
 
@@ -142,6 +156,7 @@ struct Args {
     names: HashMap<usize, String>,
     labels: Vec<EdgeLabel>,
     edge_ids: bool,
+    texts: Vec<MapText>,
 }
 
 enum Parsed {
@@ -167,6 +182,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut png = false;
     let (mut vehicles, mut names) = (false, HashMap::new());
     let (mut labels, mut edge_ids) = (Vec::new(), false);
+    let mut texts = Vec::new();
     let (mut rail_grade_limit, mut road_grade_limit, mut tram_grade_limit) = (false, false, false);
     while let Some(arg) = args.next() {
         if VECTOR_ONLY.contains(&arg.as_str()) {
@@ -245,6 +261,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             }
             "--label" => labels.push(label(&value("--label")?)?),
             "--edge-ids" => edge_ids = true,
+            "--text" => {
+                let text = value("--text")?;
+                texts.push(map_text(&text).map_err(|why| format!("--text {why}"))?);
+            }
+            "--text-file" => texts.extend(text_file(Path::new(&value("--text-file")?))?),
             "--name" => {
                 let (slot, text) = name(&value("--name")?)?;
                 names.insert(slot, text);
@@ -355,6 +376,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         names,
         labels,
         edge_ids,
+        texts,
     })))
 }
 
@@ -444,6 +466,58 @@ fn label(text: &str) -> Result<EdgeLabel, String> {
         b: hex(b).ok_or_else(bad)?,
         text: (!words.is_empty()).then(|| words.to_owned()),
     })
+}
+
+/// `X,Y[,SIZE[,STYLE]]=TEXT`: X and Y whole metres (x east, y north), SIZE
+/// small, medium or large (medium when left out), STYLE regular. The text is
+/// everything after the first `=`, trimmed. The error says what is wrong
+/// without naming the option or the file, which the caller adds.
+fn map_text(text: &str) -> Result<MapText, String> {
+    let bad = |why: &str| format!("wants X,Y[,SIZE[,STYLE]]=TEXT, {why}, not {text:?}");
+    let (place, words) = text
+        .split_once('=')
+        .ok_or_else(|| bad("with = before the text"))?;
+    let words = words.trim();
+    if words.is_empty() {
+        return Err(bad("with a text after the ="));
+    }
+    let fields: Vec<&str> = place.split(',').map(str::trim).collect();
+    if !(2..=4).contains(&fields.len()) {
+        return Err(bad("two to four fields before the ="));
+    }
+    let metres = |v: &str| v.parse::<i32>().map_err(|_| bad("X and Y in whole metres"));
+    let size = match fields.get(2) {
+        None => TextSize::default(),
+        Some(s) => TextSize::from_name(s).ok_or_else(|| bad("SIZE small, medium or large"))?,
+    };
+    let style = match fields.get(3) {
+        None => TextStyle::default(),
+        Some(s) => TextStyle::from_name(s).ok_or_else(|| bad("STYLE regular"))?,
+    };
+    Ok(MapText {
+        x: metres(fields[0])?,
+        y: metres(fields[1])?,
+        size,
+        style,
+        text: words.to_owned(),
+    })
+}
+
+/// The texts of a `--text-file`, one `X,Y[,SIZE[,STYLE]]=TEXT` per line;
+/// blank lines and lines starting with `#` are skipped.
+fn map_texts(file: &str, lines: &str) -> Result<Vec<MapText>, String> {
+    lines
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .map(|(n, line)| map_text(line).map_err(|why| format!("{file} line {}: {why}", n + 1)))
+        .collect()
+}
+
+fn text_file(path: &Path) -> Result<Vec<MapText>, String> {
+    let file = path.display().to_string();
+    let lines = std::fs::read_to_string(path).map_err(|e| format!("--text-file {file}: {e}"))?;
+    map_texts(&file, &lines)
 }
 
 /// `SLOT=TEXT`, the slot a whole number.
@@ -616,6 +690,27 @@ fn run(args: Args) -> Result<(), Failure> {
     } else if args.edge_ids {
         eprintln!("--edge-ids works with --label: no ids written");
     }
+    let outside = texts_outside(&header, &args.texts, &args.options);
+    if !outside.is_empty() {
+        // One line, however many: a crop leaves out most of a town list.
+        const SHOWN: usize = 5;
+        let mut named: Vec<String> = outside
+            .iter()
+            .take(SHOWN)
+            .map(|t| format!("{:?} at {},{}", t.text, t.x, t.y))
+            .collect();
+        if outside.len() > SHOWN {
+            named.push(format!("and {} more", outside.len() - SHOWN));
+        }
+        eprintln!(
+            "{} of {} texts lie outside the picture and are left out: {}",
+            outside.len(),
+            args.texts.len(),
+            named.join(", ")
+        );
+    }
+    let texts_drawn = args.texts.len() - outside.len();
+    layers.texts = args.texts.clone();
     if !args.names.is_empty() && !args.vehicles {
         eprintln!("--name works with --vehicles: no names written");
     }
@@ -641,6 +736,9 @@ fn run(args: Args) -> Result<(), Failure> {
     }
     if args.vehicles {
         extra += &format!(", {} vehicles", layers.vehicles.len());
+    }
+    if !args.texts.is_empty() {
+        extra += &format!(", {texts_drawn} texts");
     }
     let o = &args.options;
     let is_track: fn(&Edge) -> bool = |e| e.family == Family::Track;
@@ -1168,6 +1266,65 @@ mod tests {
     }
 
     #[test]
+    fn texts_are_read() {
+        let text = |x, y, size, words: &str| MapText {
+            x,
+            y,
+            size,
+            style: TextStyle::Regular,
+            text: words.into(),
+        };
+        let a = run_args(&[
+            "s.sav",
+            "--text",
+            "-3652,-784=Artesia",
+            "--text",
+            " 4892 , -22608 , large , regular = Tucumcari = old ",
+            "--text",
+            "0,0,small=R&D",
+        ]);
+        assert_eq!(
+            a.texts,
+            [
+                text(-3652, -784, TextSize::Medium, "Artesia"),
+                text(4892, -22608, TextSize::Large, "Tucumcari = old"),
+                text(0, 0, TextSize::Small, "R&D"),
+            ]
+        );
+        for bad in [
+            "1,2",
+            "1,2=",
+            "1,2=  ",
+            "1=Here",
+            "1.5,2=Here",
+            "1,2,medium,regular,x=Here",
+            "1,2,med=Here",
+            "1,2,,regular=Here",
+            "1,2,small,bold=Here",
+            "x,2=Here",
+            "99999999999,2=Here",
+        ] {
+            let err = parse(&["s.sav", "--text", bad]).err().unwrap_or_default();
+            assert!(err.starts_with("--text wants X,Y"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn text_files_are_read_by_line() {
+        let lines = "# towns\n\n-3652,-784=Artesia\r\n  # an indented comment\n4892,-22608,large=Tucumcari\n";
+        let texts = map_texts("towns.txt", lines).unwrap();
+        assert_eq!(texts.len(), 2);
+        assert_eq!((texts[1].x, texts[1].size), (4892, TextSize::Large));
+        assert_eq!(texts[0].text, "Artesia");
+        let err = map_texts("towns.txt", "1,2=A\n\n1,2,huge=B\n").unwrap_err();
+        assert!(err.starts_with("towns.txt line 3: wants"), "{err}");
+        let err = parse(&["s.sav", "--text-file", "/no/such/file"])
+            .err()
+            .unwrap_or_default();
+        assert!(err.starts_with("--text-file /no/such/file:"), "{err}");
+    }
+
+    #[test]
     fn labels_are_read() {
         let a = run_args(&[
             "s.sav",
@@ -1363,6 +1520,7 @@ mod tests {
             &["s.sav", "--png", "--raster"][..],
             &["s.sav", "--vehicles", "--png"],
             &["s.sav", "--png", "--label", "1>2"],
+            &["s.sav", "--png", "--text", "1,2=Here"],
             &["s.sav", "--png", "--grid", "100"],
             &["s.sav", "--png", "--rose", "upper-left"],
             &["s.sav", "--png", "--zoom", "2"],
