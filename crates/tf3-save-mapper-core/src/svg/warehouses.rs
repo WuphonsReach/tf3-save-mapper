@@ -14,8 +14,9 @@
 //! from its entrance over centres whose faces meet and that share its grid,
 //! and a module standing apart joins the entrance on whose grid it lies.
 //! Some entrances have no turn of their own; they take their modules'.
-//! Module pieces whose facing is not a unit vector (the catalogue rows in
-//! `docs/gaps.md`) are left out.
+//! Module pieces whose facing is not a unit vector are left out (the
+//! reader already drops the preview block's tilted pages, which hold every
+//! warehouse piece; this keeps any such record that gets through off the map).
 //!
 //! The marks inside are the pieces' boxes and cargo bays from the model
 //! files in the install: a goods module's hall (its four corner pieces as one
@@ -232,8 +233,8 @@ struct Warehouse<'a> {
 }
 
 /// Whether an instance's facing is a unit vector. Every module piece seen
-/// on the map has one; the catalogue rows at one save's map centre
-/// (`docs/gaps.md`) mostly do not.
+/// on the map has one; the preview block's tilted pages at one save's map
+/// centre (`instances::preview_block`) mostly do not.
 fn turned(i: &Instance) -> bool {
     (i.fx.hypot(i.fy) - 1.0).abs() < 0.02
 }
@@ -821,7 +822,7 @@ mod tests {
 
     #[test]
     fn pieces_with_no_unit_turn_and_lone_entrances_are_left_out() {
-        // As in the catalogue rows: a centre piece turned 0.73, another not
+        // As in the preview block's tilted pages: a centre piece turned 0.73, another not
         // at all, and an entrance with none of its own and no module near.
         let rows = vec![
             piece(

@@ -181,35 +181,42 @@ fn find_records(data: &[u8], from: usize) -> Vec<usize> {
     out
 }
 
-/// The indexes (into `matches`) of the records of the editor's model preview
-/// block. A page is a run of records exactly 68 bytes apart whose transform
-/// has no rotation (only the diagonal and the translation are non-zero) and
-/// whose model ids rise by one. The block is pages of at least `BLOCK_RUN`
-/// records, and a shorter page joins it when it sits next to a block page
-/// with at most 200 bytes between them.
+/// The indexes (into `matches`) of the records of the model preview block
+/// (`docs/editor-saves.md` in tf3-save-format). A page is a run of records
+/// exactly 68 bytes apart whose model ids rise by one; a real instance has
+/// more after its transform, so two never sit that close. A lone record
+/// counts as a page only if its transform has no rotation (only the diagonal
+/// and the translation are non-zero). The block is pages of at least
+/// `BLOCK_RUN` records, and a shorter page joins it when it sits next to a
+/// block page with at most 200 bytes between them.
+///
+/// Most saves' pages have no rotation. One save's (6487589) also hold long
+/// pages, one record per model, whose transforms are tilted and scaled, in
+/// rows along x at y -2.2 and 7.2; read as instances they put a depot of
+/// every kind at the map's centre.
 fn preview_block(data: &[u8], matches: &[usize]) -> BTreeSet<usize> {
+    let plain = |at: usize| {
+        let (_, m) = record(data, at);
+        [1, 2, 4, 6, 8, 9].iter().all(|&i| m[i] == 0.0)
+    };
     let mut pages: Vec<Vec<usize>> = Vec::new();
     let mut run: Vec<usize> = Vec::new();
+    let mut flush = |run: &mut Vec<usize>| {
+        let page = std::mem::take(run);
+        if page.len() > 1 || page.first().is_some_and(|&k| plain(matches[k])) {
+            pages.push(page);
+        }
+    };
     let mut prev: Option<(usize, u32)> = None;
     for (k, &at) in matches.iter().enumerate() {
-        let (id, m) = record(data, at);
-        let plain = [1, 2, 4, 6, 8, 9].iter().all(|&i| m[i] == 0.0);
-        if plain && prev.is_some_and(|(p, pid)| at - p == RECORD_BYTES && id == pid.wrapping_add(1))
-        {
-            run.push(k);
-        } else {
-            if !run.is_empty() {
-                pages.push(std::mem::take(&mut run));
-            }
-            if plain {
-                run.push(k);
-            }
+        let (id, _) = record(data, at);
+        if !prev.is_some_and(|(p, pid)| at - p == RECORD_BYTES && id == pid.wrapping_add(1)) {
+            flush(&mut run);
         }
+        run.push(k);
         prev = Some((at, id));
     }
-    if !run.is_empty() {
-        pages.push(run);
-    }
+    flush(&mut run);
     let mut keep: Vec<bool> = pages.iter().map(|p| p.len() >= BLOCK_RUN).collect();
     let near = |a: usize, b: usize| {
         let gap = matches[pages[b][0]] as i64
@@ -335,5 +342,43 @@ mod tests {
         }
         let found = read_instances(&s, &table, &["industries/"]);
         assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    /// A record with the given first three rows (a tilted, scaled transform).
+    fn tilted(out: &mut Vec<u8>, id: u32, rows: [f32; 12], x: f32, y: f32) {
+        out.extend_from_slice(&id.to_le_bytes());
+        for f in rows.iter().chain(&[x, y, -7.2, 1.0]) {
+            out.extend_from_slice(&f.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn a_page_of_tilted_records_is_left_out() {
+        let mut s = stream();
+        let table = read_model_table(&s).unwrap();
+        // As in one save's rows at the map's centre: 68 bytes apart, rising
+        // ids, scaled along x and tilted about y.
+        let rows = [
+            0.734, 0.0, -0.679, 0.0, 0.0, 1.0, 0.0, 0.0, 0.679, 0.0, 0.734, 0.0,
+        ];
+        for (k, id) in (115..121).enumerate() {
+            tilted(&mut s, id, rows, 122.0 + 0.55 * k as f32, 7.2);
+        }
+        let found = read_instances(&s, &table, &["industries/"]);
+        assert_eq!(found.len(), 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_lone_turned_record_after_a_page_is_kept() {
+        let mut s = stream();
+        let table = read_model_table(&s).unwrap();
+        for id in 115..121 {
+            instance(&mut s, id, 0.0, 0.0, (1.0, 0.0));
+        }
+        s.extend_from_slice(&[3; 20]);
+        instance(&mut s, 120, 400.0, 80.0, (0.0, 1.0));
+        let found = read_instances(&s, &table, &["industries/"]);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!((found[1].x, found[1].y), (400.0, 80.0));
     }
 }
