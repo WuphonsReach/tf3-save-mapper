@@ -7,11 +7,12 @@ use std::collections::HashMap;
 use common::{
     BOATHOUSE_MODEL, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
     FREE_RUN_START, FREE_TAIL, HANGAR_AT, HANGAR_MODEL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT,
-    STRIP_ID, STRIP_ROWS, TRACK_LANES, UNLANED_NODES,
+    STRIP_ID, STRIP_ROWS, TRACK_LANES, UNLANED_NODES, WAREHOUSE_AT, WAREHOUSE_MODELS,
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
-    Crop, EdgeLabel, GridLines, GridStep, North, Rose, shown_edges, unmatched_labels,
+    Crop, EdgeLabel, GridLines, GridStep, North, Rose, is_warehouse_piece, shown_edges,
+    unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
@@ -791,6 +792,71 @@ fn vehicles_are_found_and_drawn_by_folder() {
     );
 }
 
+#[test]
+fn a_warehouse_is_drawn_under_the_roads_from_its_pieces() {
+    let stream = common::stream(&edges());
+    let header = read_header(&stream).unwrap();
+    let table = read_model_table(&stream).unwrap();
+    let found = read_instances(&stream, &table, &["warehouses/"]);
+    let models: Vec<&str> = found.iter().map(|i| i.model.as_str()).collect();
+    assert_eq!(models, WAREHOUSE_MODELS);
+    assert!(found.iter().all(|i| is_warehouse_piece(&i.model)));
+    // The others keep their slots: the hangar's is the one before.
+    let hangar = read_instances(&stream, &table, &["industries/saw_mill/"]);
+    assert_eq!(found[0].slot, hangar[0].slot + 1);
+    assert_eq!(warehouse_count(&found), (1, 2));
+
+    let mut live = read_edges(&stream).unwrap();
+    retain_live(&mut live, &read_free_ids(&stream).unwrap());
+    let layers = Layers {
+        warehouses: found.clone(),
+        ..Layers::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &live, &layers, &SvgOptions::default()).unwrap();
+    let svg = String::from_utf8(out).unwrap();
+    let at = |id: &str| svg.find(&format!("id=\"{id}\"")).unwrap();
+    assert!(at("warehouses") < at("roads"), "{svg}");
+    assert!(svg.contains(&format!(
+        "<g class=\"warehouse\" data-slot=\"{}\" data-model=\"{}\" data-x=\"{:.1}\" data-y=\"{:.1}\" \
+         data-modules=\"2\">",
+        found[0].slot, WAREHOUSE_MODELS[0], WAREHOUSE_AT[0].0, WAREHOUSE_AT[0].1
+    )));
+    assert!(svg.contains(&format!(
+        "<g class=\"warehouse-module\" data-type=\"goods\" data-slot=\"{}\"",
+        found[1].slot
+    )));
+    assert!(svg.contains(&format!(
+        "<g class=\"warehouse-module\" data-type=\"liquid\" data-slot=\"{}\"",
+        found[2].slot
+    )));
+    // Without the install's models there are no marks inside, and the
+    // ground is one shape round the entrance and both modules.
+    let layer = &svg[at("warehouses")..at("roads")];
+    assert!(!layer.contains("<circle"), "{layer}");
+    let ground = svg
+        .lines()
+        .find(|l| l.contains("class=\"warehouse-ground\""))
+        .unwrap();
+    assert_eq!(ground.matches('M').count(), 1, "{ground}");
+    // A crop elsewhere leaves the layer out.
+    let options = SvgOptions {
+        crop: Some(Crop {
+            x: -900.0,
+            y: 450.0,
+            radius: 120.0,
+        }),
+        ..SvgOptions::default()
+    };
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &live, &layers, &options).unwrap();
+    assert!(
+        !String::from_utf8(out)
+            .unwrap()
+            .contains("id=\"warehouses\"")
+    );
+}
+
 /// The `vehicles` layer's text.
 fn vehicle_layer(svg: &str) -> &str {
     let start = svg.find("id=\"vehicles\"").unwrap();
@@ -1333,6 +1399,7 @@ fn every_layer_is_marked_as_one_and_no_item_group_is() {
         coverage: depots,
         depot_specs: HashMap::from([("maintenance-buildings", maint_spec())]),
         vehicles: read_instances(&stream, &table, &["vehicle/"]),
+        warehouses: read_instances(&stream, &table, &["warehouses/"]),
         labels: vec![EdgeLabel {
             a: 100,
             b: 101,
@@ -1382,6 +1449,7 @@ fn every_layer_is_marked_as_one_and_no_item_group_is() {
         "road-town_old_small",
         "rails",
         "maintenance-buildings",
+        "warehouses",
         "industries",
         "industry-farm",
         "vehicles",
@@ -1398,4 +1466,6 @@ fn every_layer_is_marked_as_one_and_no_item_group_is() {
     assert!(items_seen >= 8, "{items_seen}");
     assert!(svg.contains("<g id=\"vehicle-1\" class=\"vehicle bus\""));
     assert!(svg.contains("class=\"depot maintenance-buildings\""));
+    assert!(svg.contains("<g class=\"warehouse\" "));
+    assert!(svg.contains("<g class=\"warehouse-module\" "));
 }

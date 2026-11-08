@@ -860,6 +860,76 @@ pub fn industry_faces(install: &Install) -> HashMap<String, Polygon> {
     out
 }
 
+/// What a warehouse model's file says about its shape on the ground, in the
+/// model's own axes: its box, and the boxes of its cargo bays (where a load
+/// indicator shows the stock: a bulk module's two bunkers, a liquid module's
+/// tank).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WarehouseModel {
+    pub bounds: Rect,
+    pub bays: Vec<Rect>,
+}
+
+/// Each warehouse model in the install's `warehouses.zip`, by model path
+/// (`warehouses/wh_bulk/wh_bulk_center.mdl`). A model whose box does not
+/// read is left out.
+pub fn warehouse_models(install: &Install) -> HashMap<String, WarehouseModel> {
+    let mut out = HashMap::new();
+    let Ok(mut archive) = Archive::open(&install.content.join("warehouses.zip")) else {
+        return out;
+    };
+    let mut names: Vec<String> = archive
+        .names()
+        .iter()
+        .filter(|n| n.starts_with("warehouses/") && n.ends_with(".mdl"))
+        .cloned()
+        .collect();
+    names.sort();
+    for name in names {
+        if let Some(model) = archive
+            .read_text(&name)
+            .as_deref()
+            .and_then(warehouse_model)
+        {
+            out.insert(name, model);
+        }
+    }
+    out
+}
+
+/// The box after `boundingInfo` and the box of each `cargoBay`. A model file
+/// can hold several `bbMin` and `bbMax` pairs (the bays' come after the
+/// model's), so each is read after its own key.
+fn warehouse_model(text: &str) -> Option<WarehouseModel> {
+    let at = text.find("boundingInfo")?;
+    let bounds = box_in(&text[at..])?;
+    let bays = text
+        .match_indices("cargoBay")
+        .filter_map(|(at, _)| box_in(&text[at..]))
+        .filter(|b| b.0 < b.2 && b.1 < b.3)
+        .collect();
+    Some(WarehouseModel { bounds, bays })
+}
+
+/// (x0, y0, x1, y1) from the first `bbMin` and `bbMax` in `text`, each pair
+/// in order.
+fn box_in(text: &str) -> Option<Rect> {
+    let pair = |key: &str| match table_after(text, key)? {
+        Tree::List(v) => match v.as_slice() {
+            [Tree::Number(a), Tree::Number(b), ..] => Some((*a, *b)),
+            _ => None,
+        },
+        Tree::Number(_) => None,
+    };
+    let (min, max) = (pair("bbMin")?, pair("bbMax")?);
+    Some((
+        min.0.min(max.0),
+        min.1.min(max.1),
+        min.0.max(max.0),
+        min.1.max(max.1),
+    ))
+}
+
 // Scanners for the generated Lua tables.
 
 /// A nested table of numbers: `{ { 1, 2, 0 }, { 3, 4, 0 } }`.
@@ -1247,5 +1317,26 @@ mod tests {
             "water/models",
             "dock_50_12"
         ));
+    }
+
+    #[test]
+    fn a_warehouse_model_keeps_its_own_box_and_its_bays() {
+        // The bays' pairs come after the model's, and the last pair is a bay's.
+        let text = r#"
+            boundingInfo = { bbMax = { 12.5, 14, 5, }, bbMin = { -12.5, -14.5, 0, }, },
+            metadata = { loadIndicator = { configs = {
+                bay_0 = { cargoBay = { bbMax = { 10, 9, 0, }, bbMin = { 0, -11, -4, }, type = "LEVEL", }, },
+                bay_1 = { cargoBay = { bbMax = { 0, 9, 0, }, bbMin = { -10, -11, -4, }, type = "LEVEL", }, },
+            }, }, },
+        "#;
+        assert_eq!(
+            warehouse_model(text),
+            Some(WarehouseModel {
+                bounds: (-12.5, -14.5, 12.5, 14.0),
+                bays: vec![(0.0, -11.0, 10.0, 9.0), (-10.0, -11.0, 0.0, 9.0)],
+            })
+        );
+        assert_eq!(bounding_box(text), Some((-10.0, -11.0, 0.0, 9.0)));
+        assert_eq!(warehouse_model("bbMin = { 0, 0, 0 }"), None);
     }
 }

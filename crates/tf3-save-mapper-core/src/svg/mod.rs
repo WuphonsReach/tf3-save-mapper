@@ -24,6 +24,7 @@ mod rose;
 mod stations;
 mod terrain;
 mod vehicles;
+mod warehouses;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -31,7 +32,7 @@ use std::io::{self, Write};
 
 use crate::edges::{Edge, Family};
 use crate::header::Header;
-use crate::install::{DepotSpec, Polygon, Rect};
+use crate::install::{DepotSpec, Polygon, Rect, WarehouseModel};
 use crate::instances::Instance;
 use crate::terrain::{GRID_STEP, Terrain};
 
@@ -39,6 +40,7 @@ pub use grid::{GridLines, GridStep};
 pub use industries::faces_with_measured;
 pub use labels::{EdgeLabel, unmatched as unmatched_labels};
 pub use stations::is_station_piece;
+pub use warehouses::{count as warehouse_count, is_warehouse_piece};
 
 const ROAD_COLOUR: &str = "#323232";
 const RAIL_COLOUR: &str = "#cd1e1e";
@@ -208,6 +210,12 @@ pub struct Layers {
     pub stations: Vec<Instance>,
     /// Station piece boxes by model path.
     pub station_boxes: HashMap<String, Rect>,
+    /// Warehouse entrances and module pieces (`warehouses/...`).
+    pub warehouses: Vec<Instance>,
+    /// Warehouse models' boxes and cargo bays by model path
+    /// (`install::warehouse_models`); without them the warehouses have no
+    /// marks inside.
+    pub warehouse_models: HashMap<String, WarehouseModel>,
     /// Vehicle model instances (`vehicle/...`).
     pub vehicles: Vec<Instance>,
     /// Names to write beside vehicles, by instance slot.
@@ -410,6 +418,7 @@ pub fn write_svg(
     let edge_ids = &layers.edge_ids;
     let station_rows = gather(&layers.stations);
     let depot_rows = gather(&layers.depots);
+    let warehouse_rows = gather(&layers.warehouses);
     let coverage_rows: Vec<Instance> = layers
         .coverage
         .iter()
@@ -505,6 +514,16 @@ pub fn write_svg(
     let (stations_under, stations_over) =
         stations::layers(&picture, &station_rows, &layers.station_boxes, cut);
     write_lines(out, &stations_under)?;
+    write_lines(
+        out,
+        &warehouses::layers(
+            &picture,
+            &warehouse_rows,
+            &layers.warehouse_models,
+            options.metres_per_pixel,
+            cut,
+        ),
+    )?;
     write_network(out, &picture, &edges, edge_ids, options)?;
     write_lines(
         out,
