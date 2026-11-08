@@ -290,6 +290,7 @@ mod tests {
             model: model.into(),
             x: 0.0,
             y: 0.0,
+            z: 0.0,
             fx: 0.0,
             fy: 1.0,
         }
@@ -349,6 +350,7 @@ mod tests {
             model: format!("{folder}{name}.mdl"),
             x,
             y: 0.0,
+            z: 0.0,
             fx,
             fy,
         };

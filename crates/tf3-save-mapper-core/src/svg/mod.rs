@@ -15,6 +15,7 @@
 //! the roads and rails drawn into its pixels, as the prototype's `--png` does.
 
 mod coverage;
+mod dashes;
 mod depots;
 mod grid;
 mod industries;
@@ -34,6 +35,7 @@ use crate::edges::{Edge, Family};
 use crate::header::Header;
 use crate::install::{DepotSpec, Polygon, Rect, WarehouseModel};
 use crate::instances::Instance;
+use crate::structures::Structure;
 use crate::terrain::{GRID_STEP, Terrain};
 
 pub use grid::{GridLines, GridStep};
@@ -44,6 +46,19 @@ pub use warehouses::{count as warehouse_count, is_warehouse_piece};
 
 const ROAD_COLOUR: &str = "#323232";
 const RAIL_COLOUR: &str = "#cd1e1e";
+/// Edges in tunnels: the group's opacity, and the dashes along them:
+/// at least so many metres, so many pixels at the map's metres per pixel,
+/// and so many times the edge's width (a wide road's short dashes read as
+/// blotches). The gap after each dash is two thirds of it.
+const TUNNEL_OPACITY: &str = "0.45";
+const TUNNEL_DASH: f64 = 12.0;
+const TUNNEL_DASH_PX: f64 = 6.0;
+const TUNNEL_DASH_WIDTHS: f64 = 1.5;
+/// Edges on bridges: a line this wide along each side, in a dark shade of
+/// the edge's colour (two fifths of it: `raster::ROAD_CASING`, `RAIL_CASING`).
+const CASING: f64 = 1.5;
+const ROAD_CASING: &str = "#141414";
+const RAIL_CASING: &str = "#520c0c";
 /// Plain paper under the network, so the dark roads read in a viewer with a dark theme.
 const BACKGROUND_COLOUR: &str = "#ffffff";
 /// The same paper in a PNG without terrain.
@@ -225,6 +240,9 @@ pub struct Layers {
     /// Edge entity ids by the edge's offset in the stream, where known
     /// (`strips::edge_ids`): on the edges' paths and in their labels.
     pub edge_ids: HashMap<usize, u32>,
+    /// The edges in tunnels and on bridges, by the edge's offset in the
+    /// stream (`structures::find_structures`); any other edge is on the ground.
+    pub structures: HashMap<usize, Structure>,
 }
 
 /// Where map points fall in the picture: metres from the top-left corner of
@@ -414,6 +432,11 @@ pub fn write_svg(
     let gather = |rows: &[Instance]| -> Vec<Instance> {
         rows.iter().filter(|i| near(i, GATHER)).cloned().collect()
     };
+    let dashes = tunnel_dashes(edges, &layers.structures, options);
+    let levels = raster::Levels {
+        structures: &layers.structures,
+        dashes: &dashes,
+    };
     let edges = cut_edges(edges, crop.is_some().then_some(&view), options, 0.0);
     let edge_ids = &layers.edge_ids;
     let station_rows = gather(&layers.stations);
@@ -501,6 +524,16 @@ pub fn write_svg(
         }
         None => Vec::new(),
     };
+    // The tunnels under everything on the ground.
+    write_network(
+        out,
+        &picture,
+        &edges,
+        edge_ids,
+        &levels,
+        Some(Structure::Tunnel),
+        options,
+    )?;
     write_lines(
         out,
         &coverage::layers(
@@ -524,7 +557,16 @@ pub fn write_svg(
             cut,
         ),
     )?;
-    write_network(out, &picture, &edges, edge_ids, options)?;
+    write_network(out, &picture, &edges, edge_ids, &levels, None, options)?;
+    write_network(
+        out,
+        &picture,
+        &edges,
+        edge_ids,
+        &levels,
+        Some(Structure::Bridge),
+        options,
+    )?;
     write_lines(
         out,
         &depots::layers(
@@ -581,6 +623,7 @@ pub fn write_png(
     header: &Header,
     edges: &[Edge],
     terrain: Option<&Terrain>,
+    structures: &HashMap<usize, Structure>,
     options: &SvgOptions,
 ) -> io::Result<()> {
     let crop = match options.crop {
@@ -607,6 +650,7 @@ pub fn write_png(
         }
     };
     let size = (img.width, img.height);
+    let dashes = tunnel_dashes(edges, structures, options);
     // On a crop, the edges that show in the picture, each brush at least a
     // pixel wide; on the whole map all.
     let view = View::new(
@@ -619,9 +663,18 @@ pub fn write_png(
         options,
         sampling.spacing,
     );
-    raster::draw_network(&mut img, &corner, sampling.spacing, &edges, |e| {
-        edge_width(e, options)
-    });
+    let levels = raster::Levels {
+        structures,
+        dashes: &dashes,
+    };
+    raster::draw_network(
+        &mut img,
+        &corner,
+        sampling.spacing,
+        &edges,
+        |e| edge_width(e, options),
+        &levels,
+    );
     // A flat picture has no grid or rose, so neither is a setting of it.
     let flat = SvgOptions {
         grid: GridStep::Auto,
@@ -846,16 +899,27 @@ fn edge_width(e: &Edge, options: &SvgOptions) -> f64 {
     e.width.map_or(fallback, f64::from).max(options.min_width)
 }
 
+/// The roads, then the rails, at one level: on the ground (`None`, layers
+/// `roads` and `rails`), in tunnels (layer `tunnels`, faded and dashed) or on
+/// bridges (layer `bridges`, each edge cased). A sublayer per street or track
+/// type: `road-TYPE` or `rail-TYPE`, with `-tunnel` or `-bridge` after it
+/// for the other two levels. The tunnel and bridge layers are written only
+/// when they hold an edge.
 fn write_network(
     out: &mut impl Write,
     picture: &Picture,
     edges: &[&Edge],
     ids: &HashMap<usize, u32>,
+    levels: &raster::Levels,
+    level: Option<Structure>,
     options: &SvgOptions,
 ) -> io::Result<()> {
     // Edges grouped by family and type, in stream order within each.
     let mut groups: BTreeMap<(u8, &str), Vec<&Edge>> = BTreeMap::new();
     for e in edges {
+        if levels.structures.get(&e.offset).copied() != level {
+            continue;
+        }
         let family = u8::from(e.family == Family::Track);
         groups.entry((family, e.type_name())).or_default().push(e);
     }
@@ -863,62 +927,202 @@ fn write_network(
         let (u, v) = picture.pic(p);
         format!("{} {}", fmt1(u), fmt1(v))
     };
-    for (family, id, label, colour) in [
-        (0, "roads", "Roads", ROAD_COLOUR),
-        (1, "rails", "Rails", RAIL_COLOUR),
-    ] {
-        writeln!(out, "{}", layer(id, label, ""))?;
-        for ((_, type_name), members) in groups.range((family, "")..(family + 1, "")) {
-            let prefix = if family == 0 { "road" } else { "rail" };
-            // The group's most common width goes on the group, any other on its path.
-            let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-            for e in members {
-                *counts.entry(fmt_width(edge_width(e, options))).or_default() += 1;
-            }
-            let common = counts
-                .iter()
-                .max_by_key(|(_, n)| **n)
-                .map(|(w, _)| w.clone())
-                .unwrap_or_default();
-            writeln!(
-                out,
-                "{}",
-                layer(
-                    &format!("{prefix}-{}", safe_id(type_name)),
-                    &format!("{label}: {type_name}"),
-                    &format!(
-                        " fill=\"none\" stroke=\"{colour}\" stroke-width=\"{common}\" \
-                         stroke-linecap=\"round\" stroke-linejoin=\"round\""
-                    )
-                )
-            )?;
-            for e in members {
-                let c = e.bezier();
-                let d = if e.is_curved(CURVE_TOLERANCE) {
-                    format!("M{}C{} {} {}", pt(c[0]), pt(c[1]), pt(c[2]), pt(c[3]))
-                } else {
-                    format!("M{}L{}", pt(c[0]), pt(c[3]))
+    let path = |e: &Edge| {
+        let c = e.bezier();
+        if e.is_curved(CURVE_TOLERANCE) {
+            format!("M{}C{} {} {}", pt(c[0]), pt(c[1]), pt(c[2]), pt(c[3]))
+        } else {
+            format!("M{}L{}", pt(c[0]), pt(c[3]))
+        }
+    };
+    let (suffix, style) = match level {
+        None => (
+            "",
+            " stroke-linecap=\"round\" stroke-linejoin=\"round\"".to_owned(),
+        ),
+        Some(Structure::Tunnel) => (
+            "-tunnel",
+            " stroke-linecap=\"butt\" stroke-linejoin=\"round\"".to_owned(),
+        ),
+        Some(Structure::Bridge) => (
+            "-bridge",
+            " stroke-linecap=\"butt\" stroke-linejoin=\"round\"".to_owned(),
+        ),
+    };
+    // Each outer layer and the families it holds: on the ground a layer
+    // per family, in a tunnel or on a bridge one layer for both.
+    let outer: Vec<(String, &[u8])> = match level {
+        None => vec![
+            (layer("roads", "Roads", ""), &[0]),
+            (layer("rails", "Rails", ""), &[1]),
+        ],
+        _ if groups.is_empty() => Vec::new(),
+        Some(Structure::Tunnel) => vec![(
+            layer(
+                "tunnels",
+                "Tunnels",
+                &format!(" opacity=\"{TUNNEL_OPACITY}\""),
+            ),
+            &[0, 1],
+        )],
+        Some(Structure::Bridge) => vec![(layer("bridges", "Bridges", ""), &[0, 1])],
+    };
+    for (open, families) in outer {
+        writeln!(out, "{open}")?;
+        for &family in families {
+            let (prefix, label, colour, casing) = if family == 0 {
+                ("road", "Roads", ROAD_COLOUR, ROAD_CASING)
+            } else {
+                ("rail", "Rails", RAIL_COLOUR, RAIL_CASING)
+            };
+            for ((_, type_name), members) in groups.range((family, "")..(family + 1, "")) {
+                // The group's most common width goes on the group, any other on its path.
+                let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+                for e in members {
+                    *counts.entry(fmt_width(edge_width(e, options))).or_default() += 1;
+                }
+                let common = most_common(counts);
+                // In a tunnel the same for the dash pattern, which follows the width.
+                let dasharray = |e: &Edge| {
+                    levels
+                        .dashes
+                        .get(&e.offset)
+                        .map(|d| format!("{} {}", fmt_width(d.dash), fmt_width(d.gap)))
                 };
-                let width = fmt_width(edge_width(e, options));
-                let own = if width == common {
-                    String::new()
-                } else {
-                    format!(" stroke-width=\"{width}\"")
+                let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+                for e in members {
+                    if let Some(d) = dasharray(e) {
+                        *counts.entry(d).or_default() += 1;
+                    }
+                }
+                let common_dashes = match level {
+                    Some(Structure::Tunnel) => Some(most_common(counts)),
+                    _ => None,
                 };
-                let id = ids
-                    .get(&e.offset)
-                    .map_or(String::new(), |id| format!(" data-edge=\"{id:x}\""));
+                let group_dashes = common_dashes
+                    .as_ref()
+                    .map_or(String::new(), |d| format!(" stroke-dasharray=\"{d}\""));
+                let place = match level {
+                    None => String::new(),
+                    Some(Structure::Tunnel) => " in tunnels".into(),
+                    Some(Structure::Bridge) => " on bridges".into(),
+                };
                 writeln!(
                     out,
-                    "<path data-a=\"{:x}\" data-b=\"{:x}\"{id}{own} d=\"{d}\"/>",
-                    e.a, e.b
+                    "{}",
+                    layer(
+                        &format!("{prefix}-{}{suffix}", safe_id(type_name)),
+                        &format!("{label}: {type_name}{place}"),
+                        &format!(
+                            " fill=\"none\" stroke=\"{colour}\" stroke-width=\"{common}\"{style}{group_dashes}"
+                        )
+                    )
                 )?;
+                if level == Some(Structure::Bridge) {
+                    // The casing first, under every fill of the group, so the
+                    // edges of one bridge join without a line between them.
+                    let cased = |w: &str| fmt_width(w.parse::<f64>().unwrap_or(0.0) + 2.0 * CASING);
+                    writeln!(
+                        out,
+                        "<g class=\"casing\" stroke=\"{casing}\" stroke-width=\"{}\">",
+                        cased(&common)
+                    )?;
+                    for e in members {
+                        let width = fmt_width(edge_width(e, options));
+                        let own = if width == common {
+                            String::new()
+                        } else {
+                            format!(" stroke-width=\"{}\"", cased(&width))
+                        };
+                        writeln!(out, "<path{own} d=\"{}\"/>", path(e))?;
+                    }
+                    writeln!(out, "</g>")?;
+                }
+                for e in members {
+                    let width = fmt_width(edge_width(e, options));
+                    let own = if width == common {
+                        String::new()
+                    } else {
+                        format!(" stroke-width=\"{width}\"")
+                    };
+                    let id = ids
+                        .get(&e.offset)
+                        .map_or(String::new(), |id| format!(" data-edge=\"{id:x}\""));
+                    let phase = match levels.dashes.get(&e.offset) {
+                        Some(d) if level == Some(Structure::Tunnel) => {
+                            let own = dasharray(e).filter(|d| Some(d) != common_dashes.as_ref());
+                            format!(
+                                "{} stroke-dashoffset=\"{}\"",
+                                own.map_or(String::new(), |d| format!(" stroke-dasharray=\"{d}\"")),
+                                fmt1(d.phase)
+                            )
+                        }
+                        _ => String::new(),
+                    };
+                    writeln!(
+                        out,
+                        "<path data-a=\"{:x}\" data-b=\"{:x}\"{id}{own}{phase} d=\"{}\"/>",
+                        e.a,
+                        e.b,
+                        path(e)
+                    )?;
+                }
+                writeln!(out, "</g>")?;
             }
-            writeln!(out, "</g>")?;
         }
         writeln!(out, "</g>")?;
     }
     Ok(())
+}
+
+/// The most common of `counts`' keys (the last of those tied).
+fn most_common(counts: BTreeMap<String, usize>) -> String {
+    counts
+        .into_iter()
+        .max_by_key(|(_, n)| *n)
+        .map(|(k, _)| k)
+        .unwrap_or_default()
+}
+
+/// The dash pattern of every edge in a tunnel, by the edge's offset: its
+/// dash and gap ([`tunnel_pattern`]) and its phase (`dashes::phases`, among
+/// the edges with the same pattern), from all of them, so a crop shows the
+/// same dashes as the whole map.
+fn tunnel_dashes(
+    edges: &[Edge],
+    structures: &HashMap<usize, Structure>,
+    options: &SvgOptions,
+) -> HashMap<usize, raster::Dashes> {
+    let mut by_pattern: BTreeMap<u64, Vec<&Edge>> = BTreeMap::new();
+    for e in edges
+        .iter()
+        .filter(|e| structures.get(&e.offset) == Some(&Structure::Tunnel))
+    {
+        let (dash, _) = tunnel_pattern(edge_width(e, options), options.metres_per_pixel);
+        by_pattern.entry(dash.to_bits()).or_default().push(e);
+    }
+    let mut out = HashMap::new();
+    for (bits, group) in by_pattern {
+        let dash = f64::from_bits(bits);
+        let gap = tunnel_gap(dash);
+        for (offset, phase) in dashes::phases(&group, dash, gap) {
+            out.insert(offset, raster::Dashes { phase, dash, gap });
+        }
+    }
+    out
+}
+
+/// The dash and gap along an edge `width` metres wide in a tunnel, metres,
+/// at `mpp` metres per pixel.
+fn tunnel_pattern(width: f64, mpp: f64) -> (f64, f64) {
+    let dash = TUNNEL_DASH
+        .max(TUNNEL_DASH_PX * mpp)
+        .max(TUNNEL_DASH_WIDTHS * width);
+    (dash, tunnel_gap(dash))
+}
+
+fn tunnel_gap(dash: f64) -> f64 {
+    dash * 2.0 / 3.0
 }
 
 fn description(header: &Header) -> String {
@@ -1121,6 +1325,77 @@ mod tests {
         assert!(svg.contains("width=\"125\" height=\"250\""));
         assert!(svg.contains("d=\"M0.0 0.0L1000.0 2000.0\""), "{svg}");
         assert!(svg.contains("data-a=\"ab\" data-b=\"cd\""));
+    }
+
+    #[test]
+    fn a_tunnel_dash_is_at_least_one_and_a_half_widths() {
+        // 12 m, or 6 px, or 1.5 widths, whichever is longest; the gap two
+        // thirds of the dash.
+        assert_eq!(tunnel_pattern(7.25, 1.0), (12.0, 8.0));
+        assert_eq!(tunnel_pattern(7.25, 8.0), (48.0, 32.0));
+        assert_eq!(tunnel_pattern(32.0, 1.0), (48.0, 32.0));
+        assert_eq!(tunnel_pattern(15.5, 2.0), (23.25, 15.5));
+    }
+
+    #[test]
+    fn a_wider_edge_in_a_tunnel_gets_longer_dashes_and_a_rail_bridge_a_dark_red_casing() {
+        // At the whole map's 8 m per pixel the dash is at least 48 m; two
+        // 40 m roads take 60 m (the sublayer's), a 48 m one 72 m (its own).
+        let mut edges = Vec::new();
+        for (k, (w, y)) in [(40.0, 0.0), (40.0, 500.0), (48.0, 1000.0)]
+            .into_iter()
+            .enumerate()
+        {
+            let mut e = edge("street/wide", [0.0, y, 0.0], [300.0, y, 0.0], Some(w));
+            e.offset = k + 1;
+            edges.push(e);
+        }
+        let mut rail = edge(
+            "track/standard",
+            [0.0, -500.0, 0.0],
+            [300.0, -500.0, 0.0],
+            Some(4.0),
+        );
+        rail.offset = 4;
+        edges.push(rail);
+        let layers = Layers {
+            structures: HashMap::from([
+                (1, Structure::Tunnel),
+                (2, Structure::Tunnel),
+                (3, Structure::Tunnel),
+                (4, Structure::Bridge),
+            ]),
+            ..Layers::default()
+        };
+        let options = SvgOptions {
+            rose: None,
+            ..SvgOptions::default()
+        };
+        let mut out = Vec::new();
+        write_svg(&mut out, &header(), &edges, &layers, &options).unwrap();
+        let svg = String::from_utf8(out).unwrap();
+        assert!(svg.contains(
+            "stroke-width=\"40\" stroke-linecap=\"butt\" stroke-linejoin=\"round\" \
+             stroke-dasharray=\"60 40\""
+        ));
+        assert!(svg.contains(" stroke-width=\"48\" stroke-dasharray=\"72 48\" stroke-dashoffset="));
+        // Once each: the group's, and the one path's own.
+        assert_eq!(svg.matches("stroke-dasharray=\"60 40\"").count(), 1);
+        assert_eq!(svg.matches("stroke-dasharray=\"72 48\"").count(), 1);
+        assert!(svg.contains("<g class=\"casing\" stroke=\"#520c0c\" stroke-width=\"7\">"));
+    }
+
+    #[test]
+    fn a_bridge_casing_is_a_dark_shade_of_its_edge_colour() {
+        let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+        for (colour, casing, rgb, casing_rgb) in [
+            (ROAD_COLOUR, ROAD_CASING, raster::ROAD, raster::ROAD_CASING),
+            (RAIL_COLOUR, RAIL_CASING, raster::RAIL, raster::RAIL_CASING),
+        ] {
+            assert_eq!(hex(rgb), colour);
+            assert_eq!(rgb.map(|c| (u16::from(c) * 2 / 5) as u8), casing_rgb);
+            assert_eq!(hex(casing_rgb), casing);
+        }
     }
 
     #[test]

@@ -620,6 +620,7 @@ mod tests {
             model: model.into(),
             x: at.0,
             y: at.1,
+            z: 0.0,
             fx: facing.0,
             fy: facing.1,
         }

@@ -12,10 +12,10 @@ use tf3_save_mapper_core::svg::{
     is_warehouse_piece, shown_edges, unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
-    Edge, Family, Header, Install, Instance, Layers, Mods, SvgOptions, container, edge_ids,
-    industry_models, read_edges, read_free_ids, read_header, read_instances, read_lane_ids,
-    read_model_table, read_strips, read_terrain, retain_laned, retain_live, retain_near_industries,
-    retain_without_sidings, write_png, write_svg,
+    Edge, Family, Header, Install, Instance, Layers, Mods, Structure, SvgOptions, container,
+    edge_ids, find_structures, industry_models, read_edges, read_free_ids, read_header,
+    read_instances, read_lane_ids, read_model_table, read_strips, read_terrain, retain_laned,
+    retain_live, retain_near_industries, retain_without_sidings, structures, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -549,7 +549,7 @@ fn run(args: Args) -> Result<(), Failure> {
         }
     }
 
-    let (mut layers, industry_points) = read_layers(&args, &stream, &header)?;
+    let (mut layers, industry_points) = read_layers(&args, &stream, &header, &edges)?;
     dropped += drop_loose(&mut edges, industry_points.as_deref(), args.keep_dead);
     // The industries' own sidings: the footprint stands for them.
     let sidings = retain_without_sidings(&mut edges);
@@ -576,6 +576,16 @@ fn run(args: Args) -> Result<(), Failure> {
     write_output(&args, &header, &edges, &layers)?;
 
     let mut extra = String::new();
+    let count = |s: Structure| {
+        edges
+            .iter()
+            .filter(|e| layers.structures.get(&e.offset) == Some(&s))
+            .count()
+    };
+    let (tunnels, bridges) = (count(Structure::Tunnel), count(Structure::Bridge));
+    if tunnels + bridges > 0 {
+        extra += &format!(", {tunnels} edges in tunnels and {bridges} on bridges");
+    }
     if args.warehouses {
         let (warehouses, modules) = warehouse_count(&layers.warehouses);
         extra += &format!(", {warehouses} warehouses ({modules} modules)");
@@ -634,6 +644,7 @@ fn read_layers(
     args: &Args,
     stream: &[u8],
     header: &Header,
+    edges: &[Edge],
 ) -> Result<(Layers, IndustryModels), String> {
     let mut layers = Layers::default();
     if args.terrain {
@@ -644,9 +655,6 @@ fn read_layers(
     }
     let depots = args.depots || args.coverage;
     let pieces = !args.keep_dead;
-    if !(args.industries || depots || args.stations || args.warehouses || args.vehicles || pieces) {
-        return Ok((layers, None));
-    }
     let wants_install = args.industries || depots || args.stations || args.warehouses;
     let found = if wants_install {
         Install::find(args.game.as_deref())
@@ -673,11 +681,15 @@ fn read_layers(
     let table = match read_model_table(stream) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("{e}: no industries, depots, stations, warehouses or vehicles");
+            eprintln!(
+                "{e}: no industries, depots, stations, warehouses or vehicles, \
+                 and tunnels and bridges drawn as other edges"
+            );
             return Ok((layers, None));
         }
     };
-    let mut prefixes = Vec::new();
+    // The tunnel and bridge pieces, whenever the network is drawn (always).
+    let mut prefixes = Vec::from(structures::PREFIXES);
     if args.industries || pieces {
         prefixes.push("industries/");
     }
@@ -693,9 +705,6 @@ fn read_layers(
     if args.vehicles {
         prefixes.push("vehicle/");
     }
-    if prefixes.is_empty() {
-        return Ok((layers, None));
-    }
     let (half_w, half_h) = (
         f64::from(header.map_width) / 2.0 + MAP_MARGIN,
         f64::from(header.map_height) / 2.0 + MAP_MARGIN,
@@ -704,6 +713,7 @@ fn read_layers(
         .into_iter()
         .filter(|i| i.x.abs() <= half_w && i.y.abs() <= half_h)
         .collect();
+    layers.structures = find_structures(edges, &instances);
     let industry_points = pieces.then(|| {
         instances
             .iter()
@@ -875,6 +885,7 @@ fn write_output(
             header,
             edges,
             layers.terrain.as_ref(),
+            &layers.structures,
             &args.options,
         )
     } else {
