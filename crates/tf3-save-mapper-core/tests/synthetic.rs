@@ -5,9 +5,9 @@ mod common;
 use std::collections::HashMap;
 
 use common::{
-    BOATHOUSE_MODEL, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
+    BOATHOUSE_MODEL, BRIDGE_EDGE, BUS_AT, EdgeSpec, FARM_AT, FREE_DECOY, FREE_HEAD, FREE_RUN_LEN,
     FREE_RUN_START, FREE_TAIL, HANGAR_AT, HANGAR_MODEL, LONE_STRIP_ID, MAINT_AT, MAINT_MODEL, PIT,
-    STRIP_ID, STRIP_ROWS, TRACK_LANES, UNLANED_NODES, WAREHOUSE_AT, WAREHOUSE_MODELS,
+    STRIP_ID, STRIP_ROWS, TRACK_LANES, TUNNEL_EDGE, UNLANED_NODES, WAREHOUSE_AT, WAREHOUSE_MODELS,
 };
 use tf3_save_mapper_core::install::DepotSpec;
 use tf3_save_mapper_core::svg::{
@@ -17,8 +17,8 @@ use tf3_save_mapper_core::svg::{
 use tf3_save_mapper_core::{
     Family, Layers, SvgOptions, container, edge_ids, industry_models, read_edges, read_free_ids,
     read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
-    retain_laned, retain_live, retain_near_industries, retain_without_sidings, write_png,
-    write_svg,
+    retain_laned, retain_live, retain_near_industries, retain_without_sidings, structures,
+    write_png, write_svg,
 };
 
 fn edges() -> Vec<EdgeSpec> {
@@ -1222,7 +1222,15 @@ fn render_png(options: &SvgOptions) -> Vec<u8> {
     retain_live(&mut found, &read_free_ids(&stream).unwrap());
     let terrain = read_terrain(&stream).unwrap();
     let mut out = Vec::new();
-    write_png(&mut out, &header, &found, Some(&terrain), options).unwrap();
+    write_png(
+        &mut out,
+        &header,
+        &found,
+        Some(&terrain),
+        &HashMap::new(),
+        options,
+    )
+    .unwrap();
     out
 }
 
@@ -1303,7 +1311,15 @@ fn a_png_without_terrain_is_paper_and_network() {
     let header = read_header(&stream).unwrap();
     let found = read_edges(&stream).unwrap();
     let mut out = Vec::new();
-    write_png(&mut out, &header, &found, None, &SvgOptions::default()).unwrap();
+    write_png(
+        &mut out,
+        &header,
+        &found,
+        None,
+        &HashMap::new(),
+        &SvgOptions::default(),
+    )
+    .unwrap();
     let img = decode_png(&out);
     // 8 m per pixel: the whole map's 513 x 257 points every second one.
     assert_eq!((img.0, img.1), (512, 256));
@@ -1468,4 +1484,188 @@ fn every_layer_is_marked_as_one_and_no_item_group_is() {
     assert!(svg.contains("class=\"depot maintenance-buildings\""));
     assert!(svg.contains("<g class=\"warehouse\" "));
     assert!(svg.contains("<g class=\"warehouse-module\" "));
+}
+
+/// The default edges, a rail tunnel with a track on from its east end, and a
+/// road bridge (common's `TUNNEL_EDGE` and `BRIDGE_EDGE`).
+fn edges_with_structures() -> Vec<EdgeSpec> {
+    let mut specs = edges();
+    specs.extend([
+        EdgeSpec {
+            a: 0x7300,
+            b: 0x7301,
+            p0: TUNNEL_EDGE.0,
+            p1: TUNNEL_EDGE.1,
+            template: "track/standard",
+            lanes: TRACK_LANES,
+            ..EdgeSpec::default()
+        },
+        EdgeSpec {
+            a: 0x7301,
+            b: 0x7302,
+            p0: TUNNEL_EDGE.1,
+            p1: [1460.0, -850.0, 20.25],
+            template: "track/standard",
+            lanes: TRACK_LANES,
+            ..EdgeSpec::default()
+        },
+        EdgeSpec {
+            a: 0x7310,
+            b: 0x7311,
+            p0: BRIDGE_EDGE.0,
+            p1: BRIDGE_EDGE.1,
+            ..EdgeSpec::default()
+        },
+    ]);
+    specs
+}
+
+/// The live edges of `specs`' stream and what the tunnel and bridge pieces
+/// make of them.
+fn with_structures() -> (
+    tf3_save_mapper_core::Header,
+    Vec<tf3_save_mapper_core::Edge>,
+    Layers,
+) {
+    let stream = common::stream(&edges_with_structures());
+    let header = read_header(&stream).unwrap();
+    let mut found = read_edges(&stream).unwrap();
+    retain_live(&mut found, &read_free_ids(&stream).unwrap());
+    let table = read_model_table(&stream).unwrap();
+    let pieces = read_instances(&stream, &table, &structures::PREFIXES);
+    assert_eq!(pieces.len(), 25);
+    let layers = Layers {
+        terrain: Some(read_terrain(&stream).unwrap()),
+        structures: structures::find_structures(&found, &pieces),
+        ..Layers::default()
+    };
+    (header, found, layers)
+}
+
+#[test]
+fn tunnels_go_under_the_ground_layers_and_bridges_over_the_roads() {
+    let (header, found, layers) = with_structures();
+    let kinds: Vec<_> = found
+        .iter()
+        .filter_map(|e| Some(((e.a, e.b), *layers.structures.get(&e.offset)?)))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ((0x7300, 0x7301), structures::Structure::Tunnel),
+            ((0x7310, 0x7311), structures::Structure::Bridge),
+        ]
+    );
+
+    let mut out = Vec::new();
+    write_svg(&mut out, &header, &found, &layers, &SvgOptions::default()).unwrap();
+    let svg = String::from_utf8(out).unwrap();
+    let at = |id: &str| {
+        svg.find(&format!("<g id=\"{id}\""))
+            .unwrap_or_else(|| panic!("no {id}"))
+    };
+    assert!(at("grid") < at("tunnels"));
+    assert!(at("tunnels") < at("roads"));
+    assert!(at("rails") < at("bridges"));
+    assert!(at("bridges") < at("grid-labels"));
+    // x + 2048, 1024 - y. The tunnel is faded and dashed (at 8 m a pixel,
+    // 48 m dashes and 32 m gaps), its phase making the dashes' place on the
+    // map; the track on from it stays on the ground.
+    assert!(
+        svg.contains(
+            "<g id=\"tunnels\" class=\"layer\" data-layer=\"tunnels\" \
+             inkscape:groupmode=\"layer\" inkscape:label=\"Tunnels\" opacity=\"0.45\">\n\
+             <g id=\"rail-standard-tunnel\" class=\"layer\" data-layer=\"rail-standard-tunnel\" \
+             inkscape:groupmode=\"layer\" inkscape:label=\"Rails: standard in tunnels\" \
+             fill=\"none\" stroke=\"#cd1e1e\" stroke-width=\"7.25\" stroke-linecap=\"butt\" \
+             stroke-linejoin=\"round\" stroke-dasharray=\"48 32\">\n\
+             <path data-a=\"7300\" data-b=\"7301\" stroke-dashoffset=\"0.0\" \
+             d=\"M3348.0 1874.0L3448.0 1874.0\"/>"
+        ),
+        "{svg}"
+    );
+    assert!(
+        svg.contains("<path data-a=\"7301\" data-b=\"7302\" d=\"M3448.0 1874.0L3508.0 1874.0\"/>")
+    );
+    let rails = &svg[at("rails")..at("bridges")];
+    assert!(rails.contains("data-a=\"7301\""));
+    assert!(!rails.contains("data-a=\"7300\""));
+    // The bridge: a casing 1.5 m each side under the road.
+    assert!(
+        svg.contains(
+            "inkscape:label=\"Roads: town_old_small on bridges\" fill=\"none\" \
+             stroke=\"#323232\" stroke-width=\"15.5\" stroke-linecap=\"butt\" \
+             stroke-linejoin=\"round\">\n\
+             <g class=\"casing\" stroke=\"#141414\" stroke-width=\"18.5\">\n\
+             <path d=\"M3348.0 1804.0L3448.0 1804.0\"/>\n</g>\n\
+             <path data-a=\"7310\" data-b=\"7311\" d=\"M3348.0 1804.0L3448.0 1804.0\"/>"
+        ),
+        "{svg}"
+    );
+}
+
+#[test]
+fn a_png_fades_the_tunnels_and_cases_the_bridges() {
+    let (header, found, layers) = with_structures();
+    let options = SvgOptions {
+        crop: Some(Crop {
+            x: 1380.0,
+            y: -815.0,
+            radius: 80.0,
+        }),
+        metres_per_pixel: 1.0,
+        ..SvgOptions::default()
+    };
+    let draw = |edges: &[tf3_save_mapper_core::Edge],
+                structures: &HashMap<usize, structures::Structure>| {
+        let mut out = Vec::new();
+        write_png(
+            &mut out,
+            &header,
+            edges,
+            layers.terrain.as_ref(),
+            structures,
+            &options,
+        )
+        .unwrap();
+        decode_png(&out)
+    };
+    let plain = draw(&found, &HashMap::new());
+    let cased = draw(&found, &layers.structures);
+    let bare: Vec<_> = found
+        .iter()
+        .filter(|e| (e.a, e.b) != (0x7300, 0x7301))
+        .cloned()
+        .collect();
+    let ground = draw(&bare, &layers.structures);
+    // Pixel (i, j) is x 1300 + i, and about y -731 - j (the corner lies on
+    // the terrain grid).
+    let rail = [205, 30, 30];
+    // In the tunnel (y -850, row 115), phase 0: dashes from x 1300 to 1312,
+    // 1320 to 1332 and so on (the 7 px brush stamped from 3.5 px inside
+    // each end), the rail colour at 45 % over the ground.
+    let faded = |g: [u8; 3]| {
+        [0, 1, 2].map(|c| {
+            let bg = f64::from(g[c]);
+            (bg + (f64::from(rail[c]) - bg) * 0.45).round() as u8
+        })
+    };
+    assert_eq!(pixel(&plain, 10, 115), rail);
+    assert_eq!(pixel(&cased, 10, 115), faded(pixel(&ground, 10, 115)));
+    assert_eq!(pixel(&cased, 25, 115), faded(pixel(&ground, 25, 115)));
+    assert_eq!(pixel(&cased, 15, 115), pixel(&ground, 15, 115));
+    assert_eq!(pixel(&cased, 35, 115), pixel(&ground, 35, 115));
+    // On from the tunnel the track is as before.
+    assert_eq!(pixel(&cased, 130, 115), rail);
+    // Down the column at x 1350: the road's 16 px, with a casing pixel on
+    // each side (an 18 px brush), which the plain picture does not have.
+    let rows: Vec<u32> = (0..160)
+        .filter(|&j| pixel(&cased, 50, j) == [50, 50, 50])
+        .collect();
+    let (top, bottom) = (rows[0], *rows.last().unwrap());
+    assert_eq!((rows.len(), bottom - top + 1), (16, 16), "{rows:?}");
+    assert_eq!(pixel(&cased, 50, top - 1), [20, 20, 20]);
+    assert_eq!(pixel(&cased, 50, bottom + 1), [20, 20, 20]);
+    assert_ne!(pixel(&cased, 50, top - 2), [20, 20, 20]);
+    assert_ne!(pixel(&plain, 50, top - 1), [20, 20, 20]);
 }

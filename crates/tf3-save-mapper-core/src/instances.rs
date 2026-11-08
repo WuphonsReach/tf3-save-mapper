@@ -43,6 +43,8 @@ pub struct Instance {
     /// The translation, metres.
     pub x: f64,
     pub y: f64,
+    /// The height of the model's origin, metres.
+    pub z: f64,
     /// The first row of the transform: the direction the model's x axis points.
     pub fx: f64,
     pub fy: f64,
@@ -146,6 +148,7 @@ pub fn read_instances(data: &[u8], table: &ModelTable, prefixes: &[&str]) -> Vec
             model: (*model).to_owned(),
             x: f64::from(x),
             y: f64::from(y),
+            z: f64::from(z),
             fx: f64::from(fx),
             fy: f64::from(fy),
         });

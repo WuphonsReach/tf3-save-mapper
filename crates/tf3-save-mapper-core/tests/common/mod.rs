@@ -1,9 +1,10 @@
 //! A hand-built stream with the structures the reader looks for, and nothing
 //! from a real save: a header, a model table, the terrain, a street-edge
 //! table, a decoy, model instances (an industry, two vehicles, a road
-//! maintenance building, a mod's boathouse, a mod industry's hangar and a
-//! warehouse's entrance and two modules), two road-surface strip entries, a
-//! lane table and a free-id list.
+//! maintenance building, a mod's boathouse, a mod industry's hangar, a
+//! warehouse's entrance and two modules, and the pieces of a rail tunnel and
+//! a road bridge), two road-surface strip entries, a lane table and a free-id
+//! list.
 
 #![allow(dead_code)]
 
@@ -104,6 +105,34 @@ pub const WAREHOUSE_MODELS: [&str; 3] = [
 ];
 pub const WAREHOUSE_AT: [(f32, f32); 3] = [(700.0, 300.0), (678.4, 316.2), (652.8, 335.4)];
 pub const WAREHOUSE_FACING: [(f32, f32); 3] = [(0.6, 0.8), (0.6, 0.8), (-0.6, -0.8)];
+
+/// A rail tunnel's pieces along `TUNNEL_EDGE` and a stone bridge's along
+/// `BRIDGE_EDGE` (no edge of the default list: a test adds those), their
+/// instances after the warehouse's so every other instance keeps its slot.
+pub const TUNNEL_ID: u32 = 128;
+pub const TUNNEL_MODEL: &str = "infrastructure/tunnel/a_rail/tunnel_a_m1_side_lft.mdl";
+pub const BRIDGE_ID: u32 = 129;
+pub const BRIDGE_MODEL: &str = "infrastructure/bridge/stone/railing_rep.mdl";
+/// Start and end (x, y, z) of each.
+pub const TUNNEL_EDGE: ([f32; 3], [f32; 3]) = ([1300.0, -850.0, 20.25], [1400.0, -850.0, 20.25]);
+pub const BRIDGE_EDGE: ([f32; 3], [f32; 3]) = ([1300.0, -780.0, 30.5], [1400.0, -780.0, 33.5]);
+
+/// The tunnel's and the bridge's pieces: (model id, x, y, z), every 7.25 m
+/// and 9.5 m along their edges, a little off the centre line.
+pub fn structure_pieces() -> Vec<(u32, f32, f32, f32)> {
+    let mut out = Vec::new();
+    for k in 0..14 {
+        let x = 1301.5 + 7.25 * k as f32;
+        let side = if k % 2 == 0 { 2.1 } else { -1.85 };
+        out.push((TUNNEL_ID, x, TUNNEL_EDGE.0[1] + side, 20.75));
+    }
+    for k in 0..11 {
+        let x = 1302.25 + 9.5 * k as f32;
+        let z = 30.5 + 3.0 * (x - 1300.0) / 100.0 + 0.4;
+        out.push((BRIDGE_ID, x, BRIDGE_EDGE.0[1] - 0.6, z));
+    }
+    out
+}
 
 pub const BOATHOUSE_ID: u32 = 901;
 pub const BOATHOUSE_MODEL: &str = "assets/ingo_bootsschuppen/ingo_bootsschuppen.mdl";
@@ -264,7 +293,8 @@ pub fn edge_record(e: &EdgeSpec) -> Vec<u8> {
 
 /// The model table: 120 animals first, as the game's table sorts them, then
 /// the farm's main model, a bus, a wagon, a road maintenance building, a saw mill hangar, a
-/// warehouse's three pieces and two mods' models whose ids skip ahead.
+/// warehouse's three pieces, a tunnel and a bridge piece and two mods' models
+/// whose ids skip ahead.
 pub fn model_table() -> Vec<u8> {
     let mut b = Vec::new();
     let mut paths: Vec<String> = (0..FARM_ID)
@@ -276,6 +306,8 @@ pub fn model_table() -> Vec<u8> {
     paths.push(MAINT_MODEL.into());
     paths.push(HANGAR_MODEL.into());
     paths.extend(WAREHOUSE_MODELS.map(String::from));
+    paths.push(TUNNEL_MODEL.into());
+    paths.push(BRIDGE_MODEL.into());
     let mods = [
         ("some_mod", "assets/some_mod/barn.mdl", 900),
         ("boathouse_mod", BOATHOUSE_MODEL, BOATHOUSE_ID),
@@ -321,10 +353,15 @@ pub fn terrain() -> Vec<u8> {
 
 /// One model instance: the id and a 4 x 4 transform turned to `facing`.
 pub fn instance(id: u32, at: (f32, f32), facing: (f32, f32)) -> Vec<u8> {
+    instance_at(id, (at.0, at.1, 61.25), facing)
+}
+
+/// An instance record standing at height `at.2`.
+pub fn instance_at(id: u32, at: (f32, f32, f32), facing: (f32, f32)) -> Vec<u8> {
     let mut b = id.to_le_bytes().to_vec();
     let (fx, fy) = facing;
     for f in [
-        fx, fy, 0.0, 0.0, -fy, fx, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, at.0, at.1, 61.25, 1.0,
+        fx, fy, 0.0, 0.0, -fy, fx, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, at.0, at.1, at.2, 1.0,
     ] {
         b.extend_from_slice(&f.to_le_bytes());
     }
@@ -346,7 +383,7 @@ pub fn strip_row(id: u32, side: u8, x: f32, y: f32) -> Vec<u8> {
 
 /// The whole stream: header, model table, terrain, a run of counters, the
 /// edge table, a decoy record far from it, the farm's, vehicles',
-/// maintenance building's, boathouse's, hangar's and warehouse's instances, the strip
+/// maintenance building's, boathouse's, hangar's, warehouse's, tunnel's and bridge's instances, the strip
 /// entries, the lane table and a free-id list near the end.
 pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
     let mut s = header(604);
@@ -386,6 +423,10 @@ pub fn stream(edges: &[EdgeSpec]) -> Vec<u8> {
             WAREHOUSE_AT[k],
             WAREHOUSE_FACING[k],
         ));
+    }
+    for (id, x, y, z) in structure_pieces() {
+        s.extend_from_slice(&[0x77; 2]);
+        s.extend_from_slice(&instance_at(id, (x, y, z), (1.0, 0.0)));
     }
     for (side, x, y) in STRIP_ROWS {
         s.extend_from_slice(&strip_row(STRIP_ID, side, x, y));

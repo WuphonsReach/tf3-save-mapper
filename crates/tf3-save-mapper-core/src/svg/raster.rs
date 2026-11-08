@@ -9,6 +9,7 @@
 //! are read only for the slopes. Finer than the heightmap's 4 m the grid is
 //! first filled in between its points (no new height detail).
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::ops::RangeInclusive;
 
@@ -16,6 +17,7 @@ use super::terrain::{grid_corner, land_rgb, picture_grid};
 use super::{CURVE_TOLERANCE, North, bezier_point};
 use crate::contour::Grid;
 use crate::edges::{Edge, Family};
+use crate::structures::Structure;
 use crate::terrain::{GRID_STEP, Terrain};
 
 /// A bigger picture is refused: at 3 bytes a pixel it is too much to hold.
@@ -24,8 +26,14 @@ const SHALLOW: [f64; 3] = [120.0, 175.0, 220.0];
 const DEEP: [f64; 3] = [30.0, 75.0, 125.0];
 /// Towards the light: north-west and up.
 const LIGHT: [f64; 3] = [-0.55, 0.55, 0.63];
-const ROAD: [u8; 3] = [50, 50, 50];
-const RAIL: [u8; 3] = [205, 30, 30];
+pub(super) const ROAD: [u8; 3] = [50, 50, 50];
+pub(super) const RAIL: [u8; 3] = [205, 30, 30];
+/// The tunnels' opacity and the bridges' casing, as in the vector layers.
+const TUNNEL_ALPHA: f64 = 0.45;
+const CASING: f64 = 1.5;
+/// The lines along a bridge's sides: two fifths of the edge's colour.
+pub(super) const ROAD_CASING: [u8; 3] = [20, 20, 20];
+pub(super) const RAIL_CASING: [u8; 3] = [82, 12, 12];
 
 /// RGB pixels, top row first.
 #[derive(Debug, Clone, PartialEq)]
@@ -241,57 +249,206 @@ pub(super) fn blank((width, height): (usize, usize), colour: [u8; 3]) -> io::Res
     })
 }
 
-/// Draw the roads into `img`, then the rails over them, each as wide as
-/// `width` gives (at least one pixel). A bend is drawn as chords of about 8
-/// pixels. `spacing` is the metres per pixel.
+/// How the edges in tunnels and on bridges are drawn, here and in the
+/// vector layers: which edges they are, and each tunnel edge's dashes, by
+/// the edge's offset.
+pub(super) struct Levels<'a> {
+    pub structures: &'a HashMap<usize, Structure>,
+    pub dashes: &'a HashMap<usize, Dashes>,
+}
+
+/// The dash pattern along an edge in a tunnel, metres: a point `s` metres
+/// along it is on a dash when `phase + s` modulo `dash + gap` is under `dash`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Dashes {
+    pub phase: f64,
+    pub dash: f64,
+    pub gap: f64,
+}
+
+/// Draw the network into `img`, each edge as wide as `width` gives (at
+/// least one pixel), a bend as chords of about 8 pixels; `spacing` is the
+/// metres per pixel. First the edges in tunnels, roads then rails, dashed
+/// and blended over the terrain at the tunnels' opacity (each pixel once,
+/// as the vector layer's group opacity does); then the roads and the rails
+/// on the ground; then those on bridges, each family's casing under its
+/// fill.
 pub(super) fn draw_network(
     img: &mut Image,
     corner: &Corner,
     spacing: f64,
     edges: &[&Edge],
     width: impl Fn(&Edge) -> f64,
+    levels: &Levels,
 ) {
-    for (family, colour) in [(Family::Street, ROAD), (Family::Track, RAIL)] {
-        for e in edges.iter().filter(|e| e.family == family) {
-            let c = e.bezier();
-            let steps = if e.is_curved(CURVE_TOLERANCE) {
-                ((e.length() / (8.0 * spacing)).ceil() as usize).max(1)
-            } else {
-                1
-            };
-            let pts: Vec<(f64, f64)> = (0..=steps)
-                .map(|i| corner.pic(bezier_point(&c, i as f64 / steps as f64)))
-                .collect();
-            let brush = ((width(e) / spacing).round_ties_even() as i64).max(1);
-            for pair in pts.windows(2) {
-                let (a, b) = (pair[0], pair[1]);
-                line(
-                    img,
-                    (a.0 / spacing, a.1 / spacing),
-                    (b.0 / spacing, b.1 / spacing),
-                    colour,
-                    brush,
-                );
+    let level = |e: &Edge| levels.structures.get(&e.offset).copied();
+    let families = [
+        (Family::Street, ROAD, ROAD_CASING),
+        (Family::Track, RAIL, RAIL_CASING),
+    ];
+    let polyline = |e: &Edge| -> Vec<(f64, f64)> {
+        let c = e.bezier();
+        let steps = if e.is_curved(CURVE_TOLERANCE) {
+            ((e.length() / (8.0 * spacing)).ceil() as usize).max(1)
+        } else {
+            1
+        };
+        (0..=steps)
+            .map(|i| {
+                let p = corner.pic(bezier_point(&c, i as f64 / steps as f64));
+                (p.0 / spacing, p.1 / spacing)
+            })
+            .collect()
+    };
+    let brush_of = |w: f64| ((w / spacing).round_ties_even() as i64).max(1);
+
+    // Tunnels: which family's colour each pixel takes, then one blend.
+    let (w, h) = (img.width, img.height);
+    let mut mask: Vec<u8> = Vec::new();
+    for (k, (family, _, _)) in families.iter().enumerate() {
+        for e in edges
+            .iter()
+            .filter(|e| e.family == *family && level(e) == Some(Structure::Tunnel))
+        {
+            if mask.is_empty() {
+                mask = vec![0; w * h];
+            }
+            let brush = brush_of(width(e));
+            let d = levels.dashes.get(&e.offset).copied().unwrap_or(Dashes {
+                phase: 0.0,
+                dash: super::TUNNEL_DASH,
+                gap: super::tunnel_gap(super::TUNNEL_DASH),
+            });
+            let (phase, dash, period) = (
+                d.phase / spacing,
+                d.dash / spacing,
+                (d.dash + d.gap) / spacing,
+            );
+            let trim = brush as f64 / 2.0;
+            for (a, b) in dashes(&polyline(e), phase, dash, period, trim) {
+                stamp((w, h), a, b, brush, |o| mask[o] = k as u8 + 1);
+            }
+        }
+    }
+    if !mask.is_empty() {
+        for (o, &m) in mask.iter().enumerate() {
+            if m > 0 {
+                let colour = families[usize::from(m - 1)].1;
+                for (px, c) in img.rgb[3 * o..3 * o + 3].iter_mut().zip(colour) {
+                    let bg = f64::from(*px);
+                    *px = (bg + (f64::from(c) - bg) * TUNNEL_ALPHA).round() as u8;
+                }
+            }
+        }
+    }
+
+    for (family, colour, _) in families {
+        for e in edges
+            .iter()
+            .filter(|e| e.family == family && level(e).is_none())
+        {
+            let brush = brush_of(width(e));
+            for pair in polyline(e).windows(2) {
+                line(img, pair[0], pair[1], colour, brush);
+            }
+        }
+    }
+
+    for (family, colour, casing) in families {
+        let on_bridges: Vec<&&Edge> = edges
+            .iter()
+            .filter(|e| e.family == family && level(e) == Some(Structure::Bridge))
+            .collect();
+        for e in &on_bridges {
+            let brush = brush_of(width(e));
+            let cased = brush_of(width(e) + 2.0 * CASING).max(brush + 2);
+            for pair in polyline(e).windows(2) {
+                line(img, pair[0], pair[1], casing, cased);
+            }
+        }
+        for e in &on_bridges {
+            let brush = brush_of(width(e));
+            for pair in polyline(e).windows(2) {
+                line(img, pair[0], pair[1], colour, brush);
             }
         }
     }
 }
 
+/// The dashes of a polyline (pixel positions) as pieces: a point `s` pixels
+/// along it is on a dash when `phase + s` modulo `period` is under `dash`.
+/// Each piece is shortened by `trim` at both ends, where the square brush
+/// reaches past it, so the dashes end about where the vector layer's flat
+/// ends do (a piece too short for that keeps its middle point).
+fn dashes(
+    points: &[(f64, f64)],
+    phase: f64,
+    dash: f64,
+    period: f64,
+    trim: f64,
+) -> Vec<((f64, f64), (f64, f64))> {
+    let mut out = Vec::new();
+    let mut s = 0.0;
+    for pair in points.windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let len = (b.0 - a.0).hypot(b.1 - a.1);
+        if len == 0.0 {
+            continue;
+        }
+        let at = |t: f64| (a.0 + (b.0 - a.0) * t / len, a.1 + (b.1 - a.1) * t / len);
+        let mut t = 0.0;
+        while t < len {
+            let m = (phase + s + t).rem_euclid(period);
+            if m < dash {
+                let end = (t + dash - m).min(len);
+                let (from, to) = (t + trim, end - trim);
+                if from < to {
+                    out.push((at(from), at(to)));
+                } else {
+                    let mid = (t + end) / 2.0;
+                    out.push((at(mid), at(mid)));
+                }
+                // On to the next dash, over the gap.
+                t = end + (period - dash);
+            } else {
+                t += period - m;
+            }
+        }
+        s += len;
+    }
+    out
+}
+
 /// A line between two pixel positions, a square brush `brush` pixels wide
 /// at each step; the parts outside the picture are skipped.
 fn line(img: &mut Image, from: (f64, f64), to: (f64, f64), colour: [u8; 3], brush: i64) {
+    let rgb = &mut img.rgb;
+    stamp((img.width, img.height), from, to, brush, |o| {
+        rgb[3 * o..3 * o + 3].copy_from_slice(&colour);
+    });
+}
+
+/// Each pixel (its index) a square brush `brush` pixels wide covers at each
+/// step of a line between two pixel positions, in a picture `w` x `h`;
+/// pixels outside it are skipped.
+fn stamp(
+    (w, h): (usize, usize),
+    from: (f64, f64),
+    to: (f64, f64),
+    brush: i64,
+    mut put: impl FnMut(usize),
+) {
     let px = |v: f64| v.round_ties_even() as i64;
     let (mut x0, mut y0, x1, y1) = (px(from.0), px(from.1), px(to.0), px(to.1));
     let (dx, dy) = ((x1 - x0).abs(), -(y1 - y0).abs());
     let (sx, sy) = (if x0 < x1 { 1 } else { -1 }, if y0 < y1 { 1 } else { -1 });
     let mut err = dx + dy;
     let (lo, hi) = (-((brush - 1) / 2), brush / 2 + 1);
-    let (w, h) = (img.width as i64, img.height as i64);
+    let (w, h) = (w as i64, h as i64);
     loop {
         for yy in (y0 + lo).max(0)..(y0 + hi).min(h) {
             for xx in (x0 + lo).max(0)..(x0 + hi).min(w) {
-                let o = 3 * (yy * w + xx) as usize;
-                img.rgb[o..o + 3].copy_from_slice(&colour);
+                put((yy * w + xx) as usize);
             }
         }
         if x0 == x1 && y0 == y1 {
@@ -497,12 +654,90 @@ mod tests {
             x: 0.0,
             y: 40.0,
         };
-        draw_network(&mut img, &corner, 1.0, &[&e], |_| 3.0);
+        let ground = Levels {
+            structures: &HashMap::new(),
+            dashes: &HashMap::new(),
+        };
+        draw_network(&mut img, &corner, 1.0, &[&e], |_| 3.0, &ground);
         let hash = img.rgb.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
             (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
         });
         let road = img.rgb.chunks(3).filter(|p| *p == ROAD).count();
         assert_eq!((road, hash), (158, 0x3882_4869_c781_618d));
+    }
+
+    #[test]
+    fn tunnels_are_faded_dashes_and_bridges_are_cased() {
+        // Two rows of edges along x on a white picture, 1 m a pixel: a rail
+        // tunnel along y 10 and a road bridge along y 30.
+        let along = |offset: usize, family: Family, y: f32| Edge {
+            a: offset as u32,
+            b: offset as u32 + 100,
+            p0: [0.0, y, 0.0],
+            p1: [60.0, y, 0.0],
+            t0: [60.0, 0.0, 0.0],
+            t1: [60.0, 0.0, 0.0],
+            template: None,
+            family,
+            width: Some(3.0),
+            offset,
+        };
+        let (tunnel, bridge) = (
+            along(1, Family::Track, 30.0),
+            along(2, Family::Street, 10.0),
+        );
+        let structures = HashMap::from([(1, Structure::Tunnel), (2, Structure::Bridge)]);
+        let dashes = HashMap::from([(
+            1,
+            Dashes {
+                phase: 0.0,
+                dash: 12.0,
+                gap: 8.0,
+            },
+        )]);
+        let levels = Levels {
+            structures: &structures,
+            dashes: &dashes,
+        };
+        let mut img = blank((60, 40), [255; 3]).unwrap();
+        let corner = Corner {
+            north: North::Game,
+            x: 0.0,
+            y: 40.0,
+        };
+        draw_network(
+            &mut img,
+            &corner,
+            1.0,
+            &[&tunnel, &bridge],
+            |_| 3.0,
+            &levels,
+        );
+        let at = |x: usize, y: usize| {
+            let o = 3 * (y * 60 + x);
+            [img.rgb[o], img.rgb[o + 1], img.rgb[o + 2]]
+        };
+        // Row 10 (map y 30): dashes 0-12, 20-32, 40-52, the rail colour
+        // at 45 % over white, nothing in the gaps.
+        let faded = [
+            (255.0 + (205.0 - 255.0) * 0.45f64).round() as u8,
+            (255.0 + (30.0 - 255.0) * 0.45f64).round() as u8,
+            (255.0 + (30.0 - 255.0) * 0.45f64).round() as u8,
+        ];
+        for x in [1, 11, 21, 31, 41, 51] {
+            assert_eq!(at(x, 10), faded, "x {x}");
+        }
+        for x in [14, 18, 34, 38, 54, 58] {
+            assert_eq!(at(x, 10), [255; 3], "x {x}");
+        }
+        // Row 30 (map y 10): the road 3 px wide, a 2 px casing round it
+        // (3 + 2 x 1.5 m = 6 px, at least the brush plus 2).
+        assert_eq!(at(30, 30), ROAD);
+        assert_eq!(at(30, 29), ROAD);
+        assert_eq!(at(30, 31), ROAD);
+        assert_eq!(at(30, 28), ROAD_CASING);
+        assert_eq!(at(30, 32), ROAD_CASING);
+        assert_eq!(at(30, 26), [255; 3]);
     }
 
     #[test]

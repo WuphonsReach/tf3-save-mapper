@@ -305,6 +305,7 @@ mod tests {
                 model: "industries/farm/farm_sm.mdl".into(),
                 x,
                 y,
+                z: 0.0,
                 fx: 1.0,
                 fy: 0.0,
             },

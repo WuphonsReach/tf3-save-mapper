@@ -20,8 +20,9 @@ previews/
 *.jpeg
 *.webp
 
-# Rendered maps are pictures of other people's saves. Only our own
-# diagrams under docs/images/ are tracked.
+# Rendered maps are pictures of other people's saves. Only docs/images/ is
+# tracked: our own diagrams, maps of the maintainer's saves, and zoomed-in
+# crops of saves published in the mod.io catalogue.
 *.svg
 !docs/images/*.svg
 *.png

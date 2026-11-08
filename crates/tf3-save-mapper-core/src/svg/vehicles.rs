@@ -184,6 +184,7 @@ mod tests {
             model: model.into(),
             x: 10.0,
             y: 20.0,
+            z: 0.0,
             fx: facing.0,
             fy: facing.1,
         }
