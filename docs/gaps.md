@@ -76,7 +76,7 @@ None of these is asked for yet; each has a reader in tf3-save-format's `tools/`.
 
 ## Blocked on the format
 
-- **Towns:** no town position is stored; names and boundaries wait on it (`town-records.md`, `town-boundaries.md`).
+- **Towns:** no town position is stored; names and boundaries wait on it (`town-records.md`, `town-boundaries.md`). Until then `--text` and `--text-file` place names by hand. On one editor map (605, 11 towns, the editor's Towns export at hand) the town's position was the midpoint of a straight 88 m town street, its first; what ties a town and its name to that edge is not known.
 - **Signals:** each is an entry in its edge's object list, but its place along the edge, side and direction are not found (`signals.md`).
 - **Traffic lights:** in the junction table, which has no reader (`junctions.md`).
 - **Line routes and stops:** nothing ties a line to edges or a vehicle to its line (`gaps/owners-and-links.md`).

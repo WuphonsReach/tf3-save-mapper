@@ -24,6 +24,11 @@ draw() {
 # rail depot to the east.
 draw "WR26A Giga-Tv3 1919 1107-1558.sav" peterlee-refinery.svg \
     --crop 8460,-3320,1050 --mpp 2
+# The maintainer's own editor map: a small town and its saw mill, named by
+# hand with --text (the save does not say where its towns are).
+draw "WR26B Giga Dry v1 1108-1359 generate main connections.sav" texts-deming.svg \
+    --crop -1000,-6800,2000 --text "-410,-7671=Deming" \
+    --text "-1708,-5810,small=Deming Saw Mill"
 # mod.io 6433459: a wide road in a tunnel under a warehouse.
 draw 6433459.sav warehouse-tunnel.svg --crop -1482,1231,480 --mpp 1
 
