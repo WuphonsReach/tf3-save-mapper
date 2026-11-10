@@ -16,6 +16,15 @@ impl<'a> Reader<'a> {
         Reader { data, pos: 0 }
     }
 
+    /// A cursor starting at byte `pos` of `data`.
+    pub(crate) fn at(data: &'a [u8], pos: usize) -> Self {
+        Reader { data, pos }
+    }
+
+    pub(crate) fn pos(&self) -> usize {
+        self.pos
+    }
+
     pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self
             .pos

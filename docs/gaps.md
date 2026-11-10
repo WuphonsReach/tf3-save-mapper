@@ -12,6 +12,7 @@ Where an entry says how many saves something is in, the count is from a model co
 - **Drawn wrong:** runways and taxiways are drawn as roads; road ends are round where the game's are flat; the grid's marks are too heavy on a small crop viewed larger.
 - **Mod depots:** the buffer-stop depot and a Chinese EMU depot mod are not drawn.
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
+- **Deleted industries:** an industry's other pieces (fences, sheds, fields) stay after the editor deletes it, and in 6443471 the free-id list reads wrong so every industry is taken as deleted.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
 - **Map key options**: where the key is drawn, how big it is, and the compass folded into its box (asked for).
 - **Possible layers** the notes make room for: speed limits, electrified track, tram streets, parcel cells, lot tint, terrain changes between two saves, sunrise and sunset on the rose.
@@ -77,3 +78,5 @@ None of these is asked for yet; each has a reader in tf3-save-format's `tools/`.
 - **Line routes and stops:** nothing ties a line to edges or a vehicle to its line (`gaps/owners-and-links.md`).
 - **Industry figures:** stock, closing date, a farm's fields: no rule links an industry's entity to its model instance (`industries.md`, `industry-lifecycle.md`, `farm-fields.md`).
 - **Trees and forests:** placed and painted trees are records with positions, but which models are trees and how a generated map's forests are stored are open (`models.md`, `terrain.md`).
+
+- **Deleted industries' other pieces, and 6443471** `tf3map` leaves out the main instance of an industry deleted in the map editor, and of an older record copy stacked at the same spot (`industry_records.rs`; the rule is in tf3-save-format's `docs/industry-records.md`). Fences, sheds and fields of a deleted industry are not dropped: no link from a piece to its record is known, and they are not drawn as markers, but they still count as industry models for the loose-piece filter. In 6443471 the free-id list read holds 1,585 of the 1,621 road nodes, so the industries layer (and the dead-road filter) take almost everything as deleted: 0 industries where 15 stand. Needs: a better source of free ids, such as the entity table's free entries; no special case for one map.
