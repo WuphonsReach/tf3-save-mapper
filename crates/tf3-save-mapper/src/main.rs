@@ -75,8 +75,9 @@ Options:
       --keep-dead     also draw what the game deleted or no longer uses: edges with an end node in
                       the free-id list, neither end in the lane table, or in a short group of
                       industry road joined to nothing and over 200 m from every industry (what a
-                      removed industry leaves), and industries deleted in the map editor or
-                      stacked as older copies; industry sidings stay out
+                      removed industry leaves), and industries deleted in the map editor,
+                      replaced when it regenerates them, or stacked as older copies; industry
+                      sidings stay out
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
@@ -895,10 +896,13 @@ fn read_layers(
         .collect();
     let mains = industry_models(&table, &instances);
     if pieces && let Some(free) = read_free_ids(stream) {
-        // Industries deleted in the map editor, and older copies of a record.
-        let n = retain_standing_industries(stream, &free, &mains, &mut instances);
+        // Industries deleted or replaced in the map editor, and older copies
+        // of a record.
+        let n = retain_standing_industries(stream, &free, &mains, edges, &mut instances);
         if n > 0 {
-            eprintln!("{n} deleted or stacked industry markers left out (--keep-dead draws them)");
+            eprintln!(
+                "{n} deleted, replaced or stacked industry markers left out (--keep-dead draws them)"
+            );
         }
     }
     layers.structures = find_structures(edges, &instances);
