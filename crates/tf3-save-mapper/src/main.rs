@@ -16,7 +16,8 @@ use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, Structure, SvgOptions, container,
     edge_ids, find_structures, industry_models, read_edges, read_free_ids, read_header,
     read_instances, read_lane_ids, read_model_table, read_strips, read_terrain, retain_laned,
-    retain_live, retain_near_industries, retain_without_sidings, structures, write_png, write_svg,
+    retain_live, retain_near_industries, retain_standing_industries, retain_without_sidings,
+    structures, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -71,10 +72,11 @@ Options:
       --min-width M   draw no road or track narrower than M metres (default 0, the real widths)
       --road-width M  width of a road whose lanes do not read, in metres (default 16)
       --rail-width M  width of a track whose lanes do not read, in metres (default 4)
-      --keep-dead     also draw edges the game deleted or no longer uses: an end node in the free-id
-                      list, neither end in the lane table, or a short group of industry road
-                      joined to nothing and over 200 m from every industry (what a removed
-                      industry leaves); industry sidings stay out
+      --keep-dead     also draw what the game deleted or no longer uses: edges with an end node in
+                      the free-id list, neither end in the lane table, or in a short group of
+                      industry road joined to nothing and over 200 m from every industry (what a
+                      removed industry leaves), and industries deleted in the map editor or
+                      stacked as older copies; industry sidings stay out
       --vehicles      draw the vehicles: one shape per vehicle model instance, pointing where it faces
       --name SLOT=TEXT  write TEXT beside the vehicle whose data-slot is SLOT (repeatable); a default
                       name such as \"Road Vehicle 279\" is shortened to RV279. A data-slot is the
@@ -887,10 +889,18 @@ fn read_layers(
         f64::from(header.map_width) / 2.0 + MAP_MARGIN,
         f64::from(header.map_height) / 2.0 + MAP_MARGIN,
     );
-    let instances: Vec<Instance> = read_instances(stream, &table, &prefixes)
+    let mut instances: Vec<Instance> = read_instances(stream, &table, &prefixes)
         .into_iter()
         .filter(|i| i.x.abs() <= half_w && i.y.abs() <= half_h)
         .collect();
+    let mains = industry_models(&table, &instances);
+    if pieces && let Some(free) = read_free_ids(stream) {
+        // Industries deleted in the map editor, and older copies of a record.
+        let n = retain_standing_industries(stream, &free, &mains, &mut instances);
+        if n > 0 {
+            eprintln!("{n} deleted or stacked industry markers left out (--keep-dead draws them)");
+        }
+    }
     layers.structures = find_structures(edges, &instances);
     let industry_points = pieces.then(|| {
         instances
@@ -901,7 +911,6 @@ fn read_layers(
     });
 
     if args.industries {
-        let mains = industry_models(&table, &instances);
         layers.industries = instances
             .iter()
             .filter_map(|i| Some((i.clone(), mains.get(&i.model)?.clone())))
