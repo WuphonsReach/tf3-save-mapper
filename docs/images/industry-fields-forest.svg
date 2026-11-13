@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="664" height="660" viewBox="5792 120 664 660">
+<title>Terrain, roads and rails</title>
+<desc>Transport Fever 3 save, format 605, map 16384 x 49152 m, climate ::/climates/dry/dry.clima, seed pYF6Rz3A7K</desc>
+<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="16384" map-height="49152" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-2400" x-max="-1736" y-min="23796" y-max="24456" crop-x="-2068" crop-y="24126" crop-radius="330" generator="tf3map" generator-version="0.10.0" generator-commit="4ac14042da"/></metadata>
+<g id="background" class="layer" data-layer="background" inkscape:groupmode="layer" inkscape:label="Background"><rect x="5792" y="120" width="664" height="660" fill="#ffffff"/></g>
+<g id="terrain" class="layer" data-layer="terrain" inkscape:groupmode="layer" inkscape:label="Terrain" transform="translate(5792 120)">
+<g id="land" class="layer" data-layer="land" inkscape:groupmode="layer" inkscape:label="Land"><rect width="664" height="660" fill="#aac380"/></g>
+<g id="bands" class="layer" data-layer="bands" inkscape:groupmode="layer" inkscape:label="Height bands" stroke="none">
+<path class="band" data-height="20" fill="#82af69" fill-rule="evenodd" d="M0 0H664V660H0ZM0 0L0 660L664 660L664 342.7L648 331.1L632 318.1L611.7 300L588 275.7L568 252L546.9 224L533.1 200L521.3 172L516 156L513.1 144L508.8 120L506.5 100L503.4 52L491.7 12L487.4 0Z"/>
+<path class="band" data-height="40" fill="#8ca969" fill-rule="evenodd" d="M0 0H664V660H0ZM0 0L0 660L664 660L664 250L659 244L652 230.5L632 197.2L619.7 180L618.4 176L600 140.8L595 128L587 112L582.9 100L581.9 92L580.9 80L581.2 64L579.5 44L576.9 28L571.3 4L569.8 0Z"/>
+<path class="band" data-height="60" fill="#96a469" fill-rule="evenodd" d="M0 0H664V660H0ZM0 0L0 660L664 660L664 82L658.9 68L652.4 56L650.3 40L639.6 8L638.1 0Z"/>
+</g>
+<g id="water" class="layer" data-layer="water" inkscape:groupmode="layer" inkscape:label="Water"><path class="water" fill="#78afdc" fill-rule="evenodd" stroke="#4a86b8" stroke-width="0.5" stroke-linejoin="round" d=""/></g>
+<g id="contours" class="layer" data-layer="contours" inkscape:groupmode="layer" inkscape:label="Height lines">
+<g id="contours-minor" class="layer" data-layer="contours-minor" inkscape:groupmode="layer" inkscape:label="Height lines: minor" fill="none" stroke="#b8996a" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round">
+<path class="contour" data-height="20" d="M664 342.7L648 331.1L632 318.1L611.7 300L588 275.7L568 252L546.9 224L533.1 200L521.3 172L516 156L513.1 144L508.8 120L506.5 100L503.4 52L491.7 12L487.4 0"/>
+<path class="contour" data-height="40" d="M664 250L659 244L652 230.5L632 197.2L619.7 180L618.4 176L600 140.8L595 128L587 112L582.9 100L581.9 92L580.9 80L581.2 64L579.5 44L576.9 28L571.3 4L569.8 0"/>
+<path class="contour" data-height="60" d="M664 82L658.9 68L652.4 56L650.3 40L639.6 8L638.1 0"/>
+</g>
+<g id="contours-index" class="layer" data-layer="contours-index" inkscape:groupmode="layer" inkscape:label="Height lines: index" fill="none" stroke="#7a5230" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+</g>
+</g>
+</g>
+<g id="grid" class="layer" data-layer="grid" inkscape:groupmode="layer" inkscape:label="Grid 200 m" pointer-events="none">
+<g id="grid-minor" class="layer" data-layer="grid-minor" inkscape:groupmode="layer" inkscape:label="Grid minor">
+</g>
+<g id="grid-major" class="layer" data-layer="grid-major" inkscape:groupmode="layer" inkscape:label="Grid major">
+<path d="M5782 176h20M5792 166v20M5782 376h20M5792 366v20M5782 576h20M5792 566v20M5782 776h20M5792 766v20M5982 176h20M5992 166v20M5982 376h20M5992 366v20M5982 576h20M5992 566v20M5982 776h20M5992 766v20M6182 176h20M6192 166v20M6182 376h20M6192 366v20M6182 576h20M6192 566v20M6182 776h20M6192 766v20M6382 176h20M6392 166v20M6382 376h20M6392 366v20M6382 576h20M6392 566v20M6382 776h20M6392 766v20" fill="none" stroke="#6b3fa0" stroke-opacity="0.85" stroke-width="1.5"/>
+</g>
+</g>
+<g id="roads" class="layer" data-layer="roads" inkscape:groupmode="layer" inkscape:label="Roads">
+<g id="road-country_old_small" class="layer" data-layer="road-country_old_small" inkscape:groupmode="layer" inkscape:label="Roads: country_old_small" fill="none" stroke="#323232" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+<path data-a="3b768" data-b="417d0" d="M6043.9 404.3L5981.0 427.2"/>
+<path data-a="417d0" data-b="4a38d" d="M5981.0 427.2L5918.1 450.1"/>
+<path data-a="4a38d" data-b="4a38e" d="M5918.1 450.1L5855.2 473.0"/>
+<path data-a="4a38e" data-b="36624" d="M5855.2 473.0C5832.9 481.1 5810.8 489.7 5788.9 498.6"/>
+<path data-a="36624" data-b="4a807" d="M5788.9 498.6C5761.4 509.8 5734.2 521.7 5707.3 534.2"/>
+<path data-a="5c058" data-b="5eb77" d="M6495.9 584.2C6471.5 574.1 6449.3 559.3 6430.7 540.7"/>
+<path data-a="5eb77" data-b="582eb" d="M6430.7 540.7L6374.1 484.1"/>
+<path data-a="582eb" data-b="5ce44" d="M6374.1 484.1C6356.0 466.0 6345.8 441.3 6345.8 415.8"/>
+<path data-a="5ce44" data-b="5ecae" d="M6345.8 415.8C6345.8 389.4 6340.6 363.3 6330.5 338.8"/>
+<path data-a="5ecae" data-b="4c67c" d="M6330.5 338.8C6322.0 318.4 6298.7 308.7 6278.2 317.2"/>
+<path data-a="4c67c" data-b="5b462" d="M6278.2 317.2C6253.6 327.4 6228.7 337.1 6203.7 346.2"/>
+<path data-a="5b462" data-b="4852c" d="M6203.7 346.2L6166.1 359.9"/>
+</g>
+<g id="road-entrance_new" class="layer" data-layer="road-entrance_new" inkscape:groupmode="layer" inkscape:label="Roads: entrance_new" fill="none" stroke="#323232" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+<path data-a="36624" data-b="36627" d="M5788.9 498.6L5795.2 514.1"/>
+</g>
+<g id="road-ind_country_old_small" class="layer" data-layer="road-ind_country_old_small" inkscape:groupmode="layer" inkscape:label="Roads: ind_country_old_small" fill="none" stroke="#323232" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+<path data-a="45c94" data-b="3b768" d="M6088.9 387.9L6043.9 404.3"/>
+<path data-a="45c94" data-b="4852c" d="M6088.9 387.9L6166.1 359.9"/>
+</g>
+<g id="road-ind_entrance_old_country" class="layer" data-layer="road-ind_entrance_old_country" inkscape:groupmode="layer" inkscape:label="Roads: ind_entrance_old_country" fill="none" stroke="#323232" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+<path data-a="45c94" data-b="4a7d9" d="M6088.9 387.9L6092.5 397.8"/>
+</g>
+</g>
+<g id="rails" class="layer" data-layer="rails" inkscape:groupmode="layer" inkscape:label="Rails">
+</g>
+<g id="road-depots" class="layer" data-layer="road-depots" inkscape:groupmode="layer" inkscape:label="Road depots" pointer-events="none">
+<g id="depot-239723" class="depot road-depots" data-slot="239723" data-model="depots/road/road_depot/road_depot.mdl" data-x="-2389.2" data-y="24043.1" data-pool="12" data-radius="400" data-modes="BUS,TRUCK">
+<polygon points="5826.52,544.60 5813.75,513.30 5804.96,516.89 5802.28,510.32 5787.46,516.36 5790.14,522.93 5761.72,534.53 5774.49,565.83" fill="#b4b4b4" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+</g>
+<g id="industries" class="layer" data-layer="industries" inkscape:groupmode="layer" inkscape:label="Industries" pointer-events="none">
+<defs>
+<symbol id="industry-icon-forest" viewBox="0 0 64 64"><g fill="currentColor"><path d="M42 4L56 24H49L60 42H47V58H37V42H24L35 24H28Z"/><path d="M14 14.8L23 31.6H18L25 46H18V58H10V46H3L10 31.6H5Z"/></g></symbol>
+</defs>
+<g id="industry-fields" class="layer" data-layer="industry-fields" inkscape:groupmode="layer" inkscape:label="Industries: fields">
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="1" points="6162.92,585.03 6106.54,605.55 6133.90,680.73 6190.28,660.21" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="2" points="6106.54,605.55 6050.15,626.07 6077.52,701.25 6133.90,680.73" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="3" points="6282.45,328.69 6226.07,349.21 6253.43,424.39 6309.81,403.86" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="4" points="6226.07,349.21 6169.69,369.73 6197.05,444.91 6253.43,424.39" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="5" points="6013.33,320.23 5956.94,340.75 5984.31,415.92 6040.69,395.40" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="6" points="6161.95,202.28 6105.57,222.80 6132.93,297.98 6189.31,277.46" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="7" points="6023.55,231.37 5967.17,251.89 5994.53,327.07 6050.91,306.54" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="8" points="6262.00,506.40 6149.24,547.44 6176.60,622.62 6289.36,581.58" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="9" points="6135.56,509.86 6022.79,550.90 6050.15,626.07 6162.92,585.03" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="10" points="6309.81,403.86 6197.05,444.91 6224.41,520.08 6337.17,479.04" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="11" points="6126.09,279.18 6013.33,320.23 6040.69,395.40 6153.45,354.36" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="12" points="6022.79,550.90 5947.62,578.26 5988.66,691.02 6063.83,663.66" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="13" points="6047.53,414.19 5972.35,441.56 6013.40,554.32 6088.57,526.96" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="14" points="6203.89,463.70 6128.71,491.06 6149.24,547.44 6224.41,520.08" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="15" points="5992.87,497.94 5917.70,525.30 5938.22,581.68 6013.40,554.32" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="16" points="5972.35,441.56 5897.18,468.92 5917.70,525.30 5992.87,497.94" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="17" points="6208.11,270.61 6132.93,297.98 6153.45,354.36 6228.63,327.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="18" points="5956.94,340.75 5881.77,368.11 5902.29,424.49 5977.47,397.13" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="19" points="6105.57,222.80 6030.39,250.16 6050.91,306.54 6126.09,279.18" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="604372" data-key="forest" data-field="20" points="5974.01,270.68 5898.84,298.05 5919.36,354.43 5994.53,327.07" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-footprints" class="layer" data-layer="industry-footprints" inkscape:groupmode="layer" inkscape:label="Industries: footprints">
+<polygon class="industry-footprint" data-slot="604372" data-key="forest" points="6088.57,526.96 6047.53,414.19 6169.69,369.73 6203.89,463.70 6128.71,491.06 6135.56,509.86" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-forest" class="layer" data-layer="industry-forest" inkscape:groupmode="layer" inkscape:label="Industries: forest" data-key="forest">
+<g class="industry" data-slot="604372" data-key="forest" data-model="industries/forest/forest_sm.mdl" data-x="-2067.6" data-y="24125.9" data-diameter="48.0"><circle cx="6124.49" cy="443.95" r="23.25" fill="#ffffff" stroke="#8c8c8c" stroke-width="1.50"/>
+<use xlink:href="#industry-icon-forest" x="6107.21" y="426.67" width="34.56" height="34.56" color="#3a3a3a"/>
+</g>
+</g>
+</g>
+<g id="grid-labels" class="layer" data-layer="grid-labels" inkscape:groupmode="layer" inkscape:label="Grid labels" pointer-events="none">
+<text x="5796.2" y="135.4" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">x -2400</text>
+<text x="5996.2" y="135.4" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">x -2200</text>
+<text x="6196.2" y="135.4" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">x -2000</text>
+<text x="5796.2" y="171.8" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">y 24400</text>
+<text x="5796.2" y="371.8" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">y 24200</text>
+<text x="5796.2" y="571.8" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">y 24000</text>
+<text x="5796.2" y="771.8" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">y 23800</text>
+</g>
+<g id="compass" class="layer" data-layer="compass" inkscape:groupmode="layer" inkscape:label="Compass rose">
+<circle cx="6424.4" cy="748.4" r="27.5" fill="#ffffff" stroke="#000000" stroke-width="0.82"/>
+<path d="M6424.4 748.4L6424.4 728.0M6424.4 748.4L6424.4 758.6M6424.4 748.4L6434.6 748.4M6424.4 748.4L6414.2 748.4" stroke="#000000" stroke-width="1.77" fill="none"/>
+<path d="M6424.4 723.9L6428.5 733.4L6420.3 733.4z" fill="#000000"/>
+<text x="6441.5" y="752.4" text-anchor="middle" font-family="sans-serif" font-size="11.6" font-weight="bold" fill="#000000">E</text>
+<text x="6424.4" y="769.6" text-anchor="middle" font-family="sans-serif" font-size="11.6" font-weight="bold" fill="#000000">S</text>
+<text x="6407.2" y="752.4" text-anchor="middle" font-family="sans-serif" font-size="11.6" font-weight="bold" fill="#000000">W</text>
+</g>
+</svg>

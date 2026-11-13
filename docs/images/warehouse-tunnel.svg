@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="964" height="964" viewBox="2132 2384 964 964">
 <title>Terrain, roads and rails</title>
 <desc>Transport Fever 3 save, format 604, map 8192 x 8192 m, climate ::/climates/temperate/temperate.clima, seed G1y8CzhLit</desc>
-<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="8192" map-height="8192" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-1964" x-max="-1000" y-min="748" y-max="1712" crop-x="-1482" crop-y="1231" crop-radius="480" generator="tf3map" generator-version="0.9.0" generator-commit="92ca9a503a-dirty"/></metadata>
+<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="8192" map-height="8192" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-1964" x-max="-1000" y-min="748" y-max="1712" crop-x="-1482" crop-y="1231" crop-radius="480" generator="tf3map" generator-version="0.10.0" generator-commit="4ac14042da"/></metadata>
 <g id="background" class="layer" data-layer="background" inkscape:groupmode="layer" inkscape:label="Background"><rect x="2132" y="2384" width="964" height="964" fill="#ffffff"/></g>
 <g id="terrain" class="layer" data-layer="terrain" inkscape:groupmode="layer" inkscape:label="Terrain" transform="translate(2132 2384)">
 <g id="land" class="layer" data-layer="land" inkscape:groupmode="layer" inkscape:label="Land"><rect width="964" height="964" fill="#aac380"/></g>
@@ -361,6 +361,26 @@
 </g>
 <g id="station-street-borders" class="layer" data-layer="station-street-borders" inkscape:groupmode="layer" inkscape:label="Street stations: border">
 <path class="station-outer" d="M2499.28 2754.34L2486.22 2738.78L2494.00 2732.25L2487.68 2724.71L2495.34 2718.28L2495.34 2718.28L2503.00 2711.85L2509.32 2719.39L2517.11 2712.86L2530.17 2728.43Z" fill="none" stroke="#000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+</g>
+<g id="industries" class="layer" data-layer="industries" inkscape:groupmode="layer" inkscape:label="Industries" pointer-events="none">
+<defs>
+<symbol id="industry-icon-livestock_farm" viewBox="0 0 64 64"><g fill="currentColor"><path fill-rule="evenodd" d="M6 58V30L14 18L32 6L50 18L58 30V58Z M20 58V38H44V58Z M28 18H36V25H28Z"/><g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M23 41L41 56M41 41L23 56"/></g></g></symbol>
+</defs>
+<g id="industry-fields" class="layer" data-layer="industry-fields" inkscape:groupmode="layer" inkscape:label="Industries: fields">
+<polygon class="industry-field" data-slot="139991" data-key="livestock_farm" data-field="9" points="1924.14,3479.51 1936.82,3420.87 1819.53,3395.51 1806.85,3454.15" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="139991" data-key="livestock_farm" data-field="16" points="1982.79,3492.19 2008.15,3374.90 1949.50,3362.22 1924.14,3479.51" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="139991" data-key="livestock_farm" data-field="17" points="2009.73,3651.48 2035.09,3534.19 1976.45,3521.51 1951.09,3638.80" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="139991" data-key="livestock_farm" data-field="18" points="2068.38,3664.16 2093.74,3546.87 2035.09,3534.19 2009.73,3651.48" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-field" data-slot="139991" data-key="livestock_farm" data-field="19" points="2125.44,3400.26 2150.80,3282.97 2092.15,3270.29 2066.79,3387.58" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-footprints" class="layer" data-layer="industry-footprints" inkscape:groupmode="layer" inkscape:label="Industries: footprints">
+<polygon class="industry-footprint" data-slot="139991" data-key="livestock_farm" points="2125.20,3401.37 2093.50,3547.98 1976.21,3522.62 2007.91,3376.01" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-livestock_farm" class="layer" data-layer="industry-livestock_farm" inkscape:groupmode="layer" inkscape:label="Industries: livestock_farm" data-key="livestock_farm">
+<g class="industry" data-slot="139991" data-key="livestock_farm" data-model="industries/livestock_farm/livestock_farm_sm.mdl" data-x="-2044.0" data-y="640.0" data-diameter="48.0"><circle cx="2050.70" cy="3462.00" r="23.25" fill="#ffffff" stroke="#8c8c8c" stroke-width="1.50"/>
+<use xlink:href="#industry-icon-livestock_farm" x="2033.42" y="3444.72" width="34.56" height="34.56" color="#3a3a3a"/>
+</g>
+</g>
 </g>
 <g id="grid-labels" class="layer" data-layer="grid-labels" inkscape:groupmode="layer" inkscape:label="Grid labels" pointer-events="none">
 <text x="2300.2" y="2399.4" font-family="sans-serif" font-size="14" fill="#000" stroke="#fff" stroke-width="2.8" paint-order="stroke">x -1800</text>
