@@ -860,6 +860,217 @@ pub fn industry_faces(install: &Install) -> HashMap<String, Polygon> {
     out
 }
 
+/// What one field slot covers, in the industry's own axes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldShape {
+    /// Ground faces: a plot's rectangle, or a module's faces placed and turned.
+    Faces(Vec<Polygon>),
+    /// A water module, which has a collider box and no ground face: a disc
+    /// round the slot's place, (a, b) and radius, half the box's longer side.
+    Disc((f64, f64), f64),
+}
+
+/// One row of an industry's `fieldConfig.fields`.
+#[derive(Debug, Clone, PartialEq)]
+struct FieldRow {
+    pos: (f64, f64),
+    size: Option<(f64, f64)>,
+    kind: Option<String>,
+}
+
+/// Each industry's field slots by key, slot 1 first (`None` where a slot's
+/// shape does not read), from `fieldConfig.fields` in `<key>/<key>.con.lua`:
+/// a row with a `size` is a plot of that size centred on its `pos` (farms,
+/// the forest); a row with a `type` is the module file that
+/// `<key>/modules.script.lua` requires under that name, a `_<N>deg` ending
+/// turning it by N degrees about its `pos` (the oil well's pumpjacks, the
+/// mines' pits); a row with neither is the script's one module (the oil
+/// platform's drilling grounds).
+pub fn industry_fields(install: &Install) -> HashMap<String, Vec<Option<FieldShape>>> {
+    let mut out = HashMap::new();
+    let Ok(dir) = std::fs::read_dir(install.content.join("industries")) else {
+        return out;
+    };
+    let mut keys: Vec<String> = dir
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter_map(|n| n.strip_suffix(".zip").map(str::to_owned))
+        .collect();
+    keys.sort();
+    for key in keys {
+        let Some(mut archive) = install.archive("industries", &format!("{key}.zip")) else {
+            continue;
+        };
+        let rows = archive
+            .read_text(&format!("{key}/{key}.con.lua"))
+            .map(|t| field_rows(&t))
+            .unwrap_or_default();
+        if rows.is_empty() {
+            continue;
+        }
+        let requires = archive
+            .read_text(&format!("{key}/modules.script.lua"))
+            .map(|t| module_requires(&t))
+            .unwrap_or_default();
+        let mut modules: HashMap<String, Option<String>> = HashMap::new();
+        let shapes = rows
+            .iter()
+            .map(|row| {
+                field_shape(row, &requires, |file| {
+                    modules
+                        .entry(file.to_owned())
+                        .or_insert_with(|| archive.read_text(&format!("{key}/{file}")))
+                        .clone()
+                })
+            })
+            .collect();
+        out.insert(key, shapes);
+    }
+    out
+}
+
+/// The shape of one slot; `module` reads a module file by its name in the
+/// industry's folder.
+fn field_shape(
+    row: &FieldRow,
+    requires: &HashMap<String, String>,
+    mut module: impl FnMut(&str) -> Option<String>,
+) -> Option<FieldShape> {
+    let (pa, pb) = row.pos;
+    if let Some((w, h)) = row.size {
+        let (hw, hh) = (w / 2.0, h / 2.0);
+        return Some(FieldShape::Faces(vec![vec![
+            (pa - hw, pb - hh),
+            (pa + hw, pb - hh),
+            (pa + hw, pb + hh),
+            (pa - hw, pb + hh),
+        ]]));
+    }
+    let (file, degrees) = match &row.kind {
+        Some(kind) => {
+            let (base, degrees) = turned(kind);
+            (requires.get(base)?, degrees)
+        }
+        None => {
+            let mut files = requires.values();
+            match (files.next(), files.next()) {
+                (Some(only), None) => (only, 0.0),
+                _ => return None,
+            }
+        }
+    };
+    let text = module(file)?;
+    let (s, c) = degrees.to_radians().sin_cos();
+    let place = |&(a, b): &(f64, f64)| (pa + c * a - s * b, pb + s * a + c * b);
+    let faces = ground_faces(&text);
+    if !faces.is_empty() {
+        return Some(FieldShape::Faces(
+            faces
+                .iter()
+                .map(|f| f.iter().map(place).collect())
+                .collect(),
+        ));
+    }
+    let Tree::List(boxes) = table_after(&text, "[\"collider\"]")? else {
+        return None;
+    };
+    let corners = points(boxes.first()?);
+    if corners.is_empty() {
+        return None;
+    }
+    let (a0, a1, b0, b1) = crate::geometry::bounds(&corners);
+    Some(FieldShape::Disc(row.pos, (a1 - a0).max(b1 - b0) / 2.0))
+}
+
+/// A field type and its turn: `pumpjack_135deg` is `pumpjack` turned 135
+/// degrees; a type with no such ending is not turned.
+fn turned(kind: &str) -> (&str, f64) {
+    kind.strip_suffix("deg")
+        .and_then(|k| k.rsplit_once('_'))
+        .and_then(|(base, n)| Some((base, n.parse::<f64>().ok()?)))
+        .unwrap_or((kind, 0.0))
+}
+
+/// `local NAME = require "FILE"` lines of a modules script, NAME to FILE,
+/// leaving out the shared scripts (paths starting `/` or `::`).
+fn module_requires(text: &str) -> HashMap<String, String> {
+    text.lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("local ")?;
+            let (name, rest) = rest.split_once('=')?;
+            let rest = rest.trim().strip_prefix("require")?.trim();
+            let file = rest.strip_prefix('"')?.split('"').next()?;
+            (!file.starts_with('/') && !file.starts_with(':'))
+                .then(|| (name.trim().to_owned(), file.to_owned()))
+        })
+        .collect()
+}
+
+/// The rows of `fields = { ... }` inside `fieldConfig`, comments left out.
+fn field_rows(text: &str) -> Vec<FieldRow> {
+    let text: String = text
+        .lines()
+        .map(|l| l.split("--").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let Some(config) = text.find("fieldConfig") else {
+        return Vec::new();
+    };
+    let Some(body) = text[config..].match_indices("fields").find_map(|(at, _)| {
+        let rest = after_assignment(&text[config + at + "fields".len()..])?;
+        braced(rest)
+    }) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    let mut rest = body;
+    while let Some(open) = rest.find('{') {
+        let Some(item) = braced(&rest[open..]) else {
+            break;
+        };
+        rest = &rest[open + item.len() + 2..];
+        let pair = |key: &str| match table_after(item, key)? {
+            Tree::List(v) => match v.as_slice() {
+                [Tree::Number(a), Tree::Number(b), ..] => Some((*a, *b)),
+                _ => None,
+            },
+            Tree::Number(_) => None,
+        };
+        let Some(pos) = pair("pos") else {
+            continue;
+        };
+        let kind = item.match_indices("type").find_map(|(at, _)| {
+            let rest = after_assignment(&item[at + "type".len()..])?.strip_prefix('"')?;
+            rest.split('"').next().map(str::to_owned)
+        });
+        rows.push(FieldRow {
+            pos,
+            size: pair("size"),
+            kind,
+        });
+    }
+    rows
+}
+
+/// The text inside the braces at the start of `text` (which starts with
+/// `{`), up to the matching close.
+fn braced(text: &str) -> Option<&str> {
+    let mut depth = 0usize;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(&text[1..i]);
+                }
+            }
+            _ if depth == 0 => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
 /// What a warehouse model's file says about its shape on the ground, in the
 /// model's own axes: its box, and the boxes of its cargo bays (where a load
 /// indicator shows the stock: a bulk module's two bunkers, a liquid module's
@@ -1013,6 +1224,14 @@ fn ground_face(text: &str) -> Option<Polygon> {
     };
     let face = points(faces.first()?);
     (face.len() >= 3).then_some(face)
+}
+
+/// Every polygon of `["ground_face"]` with at least three points.
+fn ground_faces(text: &str) -> Vec<Polygon> {
+    let Some(Tree::List(faces)) = table_after(text, "[\"ground_face\"]") else {
+        return Vec::new();
+    };
+    faces.iter().map(points).filter(|f| f.len() >= 3).collect()
 }
 
 /// The integer at the start of `text`.
@@ -1338,5 +1557,104 @@ mod tests {
         );
         assert_eq!(bounding_box(text), Some((-10.0, -11.0, 0.0, 9.0)));
         assert_eq!(warehouse_model("bbMin = { 0, 0, 0 }"), None);
+    }
+
+    const CON_FIELDS: &str = r#"
+	local stockListConfig = { stocks = { } }
+	local fieldConfig = {
+		type = "test_field",
+		fields = {
+			-- plots
+			{ pos = { 120, -30 }, size = { 60, 80 }, road = { 0, 1, 0, 0} },
+			--{ pos = { 9, 9 }, size = { 9, 9 } },
+			{ pos = { -50, 2.5e1 }, type = "pad_90deg" },
+			{ pos = { 0, 0 }, type="pit_module_02" },
+			{ pos = { 10, 10 }, type = "unknown" },
+		},
+		alignToTerrain= true,
+	}
+"#;
+
+    const MODULES_SCRIPT: &str = r#"
+local constructionutil = require "::/scripts/construction/constructionutil.lua"
+local transf = require "/scripts/mat4.tl"
+local pad = require "pad_module.lua"
+local pit_module_02 = require "pit_module_02.lua"
+"#;
+
+    #[test]
+    fn field_rows_read_pos_size_and_type() {
+        let rows = field_rows(CON_FIELDS);
+        assert_eq!(rows.len(), 4, "{rows:?}");
+        assert_eq!(rows[0].pos, (120.0, -30.0));
+        assert_eq!(rows[0].size, Some((60.0, 80.0)));
+        assert_eq!(rows[1].pos, (-50.0, 25.0));
+        assert_eq!(rows[1].kind.as_deref(), Some("pad_90deg"));
+        assert_eq!(rows[2].kind.as_deref(), Some("pit_module_02"));
+        assert!(field_rows("local fieldConfig = { }").is_empty());
+        assert!(field_rows("no fields here").is_empty());
+    }
+
+    #[test]
+    fn module_requires_skip_the_shared_scripts() {
+        let requires = module_requires(MODULES_SCRIPT);
+        assert_eq!(requires.len(), 2);
+        assert_eq!(requires["pad"], "pad_module.lua");
+        assert_eq!(requires["pit_module_02"], "pit_module_02.lua");
+        assert_eq!(turned("pumpjack_135deg"), ("pumpjack", 135.0));
+        assert_eq!(turned("coal_mine_module_01"), ("coal_mine_module_01", 0.0));
+        assert_eq!(turned("odd_xdeg"), ("odd_xdeg", 0.0));
+    }
+
+    #[test]
+    fn field_shapes_from_size_module_faces_and_colliders() {
+        let rows = field_rows(CON_FIELDS);
+        let requires = module_requires(MODULES_SCRIPT);
+        let module = |file: &str| {
+            match file {
+            "pad_module.lua" => Some(
+                r#"["ground_face"] = { { { 10.0, -5.0, 0.0 }, { 10.0, 5.0, 0.0 }, { -10.0, 5.0, 0.0 }, }, },"#
+                    .to_owned(),
+            ),
+            "pit_module_02.lua" => Some(
+                r#"["collider"] = { { { 13.0, -13.0, 20.0 }, { -20.0, -13.0, 20.0 }, { -20.0, 13.0, -2.0 }, }, },"#
+                    .to_owned(),
+            ),
+            _ => None,
+        }
+        };
+        let shape = |i: usize| field_shape(&rows[i], &requires, module);
+        assert_eq!(
+            shape(0),
+            Some(FieldShape::Faces(vec![vec![
+                (90.0, -70.0),
+                (150.0, -70.0),
+                (150.0, 10.0),
+                (90.0, 10.0)
+            ]]))
+        );
+        // Turned 90 degrees about (-50, 25): (10, -5) goes to (5, 10) from there.
+        let Some(FieldShape::Faces(faces)) = shape(1) else {
+            panic!("{:?}", shape(1));
+        };
+        let near =
+            |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).abs() < 1e-9 && (p.1 - q.1).abs() < 1e-9;
+        assert!(near(faces[0][0], (-45.0, 35.0)), "{faces:?}");
+        assert!(near(faces[0][2], (-55.0, 15.0)), "{faces:?}");
+        // No ground face: a disc of half the collider's longer side.
+        assert_eq!(shape(2), Some(FieldShape::Disc((0.0, 0.0), 16.5)));
+        assert_eq!(shape(3), None);
+        // A row with no type is the script's one module.
+        let lone = HashMap::from([("ground".to_owned(), "pad_module.lua".to_owned())]);
+        let row = FieldRow {
+            pos: (0.0, 0.0),
+            size: None,
+            kind: None,
+        };
+        assert!(matches!(
+            field_shape(&row, &lone, module),
+            Some(FieldShape::Faces(_))
+        ));
+        assert_eq!(field_shape(&row, &requires, module), None);
     }
 }

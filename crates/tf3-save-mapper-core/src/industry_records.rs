@@ -1,5 +1,5 @@
-//! Industries deleted in the map editor, and the older copies of an
-//! industry's record that stack at one spot.
+//! Industries deleted in the map editor, the older copies of an industry's
+//! record that stack at one spot, and the slots of each industry's fields.
 //!
 //! A deleted industry keeps its construction record and every model
 //! instance it had, its main model among them. An industry that lost a field
@@ -26,12 +26,17 @@
 //!   that node's ends lies within 500 m (the id now names another road's
 //!   node). Drop one main instance of the key within 1 m, while more are left
 //!   at that spot than live records stand there.
+//!
+//! Fields: the body's `modules` table is keyed by slot number, one entry per
+//! field (a farm's plots, an oil well's pumpjacks, a mine's pits); the slots'
+//! places are in the industry's `.con.lua` in the install
+//! ([`crate::install::industry_fields`]).
 
 use std::collections::{HashMap, HashSet};
 
 use crate::edges::Edge;
 use crate::instances::Instance;
-use crate::reader::Reader;
+use crate::reader::{Reader, Scalar};
 
 /// Spots closer than this, metres, are the same spot.
 const SAME_SPOT: f64 = 1.0;
@@ -50,6 +55,36 @@ struct Construction {
     first: Vec<u32>,
     /// All seven lists.
     ids: Vec<u32>,
+    /// The keys of the body's `modules` table: the slots of its fields.
+    slots: Vec<u32>,
+}
+
+/// A field slot's number is small; anything else in `modules` is not a slot.
+const SLOT_MAX: f64 = 1000.0;
+
+/// The keys of the `modules` table at the top of a record's body, with the
+/// cursor left after the body.
+fn body_slots(r: &mut Reader) -> crate::Result<Vec<u32>> {
+    let mut slots = Vec::new();
+    for _ in 0..r.u32()? {
+        if r.scalar()? != Scalar::Text("modules".into()) {
+            r.skip_value()?;
+            continue;
+        }
+        let Some(n) = r.table_start()? else {
+            continue;
+        };
+        for _ in 0..n {
+            if let Scalar::Number(k) = r.scalar()?
+                && k.fract() == 0.0
+                && (1.0..=SLOT_MAX).contains(&k)
+            {
+                slots.push(k as u32);
+            }
+            r.skip_value()?;
+        }
+    }
+    Ok(slots)
 }
 
 /// The end of `industries/<chars>.con` starting at `at`: the shortest run of
@@ -75,7 +110,7 @@ fn read_construction(data: &[u8], start: usize, end: usize) -> Option<Constructi
         return None;
     }
     let mut r = Reader::at(data, end);
-    r.skip_table().ok()?;
+    let slots = body_slots(&mut r).ok()?;
     let q = r.pos();
     let f = |i: usize| {
         data.get(q + 4 * i..q + 4 * i + 4)
@@ -112,6 +147,7 @@ fn read_construction(data: &[u8], start: usize, end: usize) -> Option<Constructi
         y,
         first,
         ids,
+        slots,
     })
 }
 
@@ -142,7 +178,7 @@ fn near(ax: f64, ay: f64, bx: f64, by: f64) -> bool {
 /// model's path to its industry key ([`crate::industry_models`]). `free` is
 /// the free-id list, `edges` the network with the dead edges already left out.
 /// Returns how many were removed. The industry's other pieces (fences, sheds,
-/// fields) stay: no link from a piece to its record is known.
+/// a field's models) stay: no link from a piece to its record is known.
 pub fn retain_standing_industries(
     data: &[u8],
     free: &HashSet<u32>,
@@ -245,6 +281,39 @@ pub fn retain_standing_industries(
     removed
 }
 
+/// The field slots of each industry in `instances`, by the main instance's
+/// `data-slot`: the keys of the `modules` table of its construction record,
+/// the record of the same key within 1 m. Where several records share the
+/// spot (older copies, a regenerate's leftovers) the one with the fewest ids
+/// in `free` wins, then one with fields, then the first in the stream.
+/// Industries whose record has no fields are left out.
+pub fn field_slots(
+    data: &[u8],
+    free: Option<&HashSet<u32>>,
+    mains: &HashMap<String, String>,
+    instances: &[Instance],
+) -> HashMap<usize, Vec<u32>> {
+    let recs = read_constructions(data);
+    let nfree =
+        |c: &Construction| free.map_or(0, |f| c.ids.iter().filter(|i| f.contains(i)).count());
+    let mut out = HashMap::new();
+    for inst in instances {
+        let Some(key) = mains.get(&inst.model) else {
+            continue;
+        };
+        let best = recs
+            .iter()
+            .filter(|c| c.key == *key && near(c.x, c.y, inst.x, inst.y))
+            .min_by_key(|c| (nfree(c), c.slots.is_empty()));
+        if let Some(c) = best
+            && !c.slots.is_empty()
+        {
+            out.insert(inst.slot, c.slots.clone());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,10 +324,60 @@ mod tests {
 
     /// A record with `first` in its first list and `rest` in its fourth.
     fn record_lists(out: &mut Vec<u8>, key: &str, x: f32, y: f32, first: &[u32], rest: &[u32]) {
+        record_full(out, key, x, y, first, rest, None);
+    }
+
+    fn lua_text(out: &mut Vec<u8>, s: &str) {
+        out.extend(3u32.to_le_bytes());
+        out.extend((s.len() as u32).to_le_bytes());
+        out.extend(s.as_bytes());
+    }
+
+    fn lua_number(out: &mut Vec<u8>, v: f64) {
+        out.extend(2u32.to_le_bytes());
+        out.extend(v.to_le_bytes());
+    }
+
+    /// A body as the game writes one, keys in sorted order: `modules` keyed
+    /// by slot (each a table naming its module file), then `seed` and `year`.
+    fn body_with_modules(out: &mut Vec<u8>, slots: &[u32]) {
+        out.extend(3u32.to_le_bytes()); // three pairs
+        lua_text(out, "modules");
+        out.extend(4u32.to_le_bytes());
+        out.push(1);
+        out.extend((slots.len() as u32).to_le_bytes());
+        for &n in slots {
+            lua_number(out, f64::from(n));
+            out.extend(4u32.to_le_bytes());
+            out.push(1);
+            out.extend(2u32.to_le_bytes());
+            lua_text(out, "name");
+            lua_text(out, "::/industries/farm/field.module");
+            lua_text(out, "variant");
+            lua_number(out, 0.0);
+        }
+        lua_text(out, "seed");
+        lua_number(out, 1234.0);
+        lua_text(out, "year");
+        lua_number(out, 1900.0);
+    }
+
+    fn record_full(
+        out: &mut Vec<u8>,
+        key: &str,
+        x: f32,
+        y: f32,
+        first: &[u32],
+        rest: &[u32],
+        slots: Option<&[u32]>,
+    ) {
         let path = format!("industries/{key}.con");
         out.extend((path.len() as u32).to_le_bytes());
         out.extend(path.as_bytes());
-        out.extend(0u32.to_le_bytes()); // an empty table body
+        match slots {
+            Some(slots) => body_with_modules(out, slots),
+            None => out.extend(0u32.to_le_bytes()), // an empty table body
+        }
         for i in 0..16 {
             let v = match i {
                 0 | 5 | 10 | 15 => 1.0,
@@ -399,5 +518,61 @@ mod tests {
             retain_standing_industries(&data, &free, &mains, &[], &mut all),
             0
         );
+    }
+
+    #[test]
+    fn field_slots_come_from_the_record_at_the_industry() {
+        let mut data = vec![0u8; 8];
+        // An older copy (id 9 free) with one field more, then the live record.
+        record_full(
+            &mut data,
+            "farm/farm",
+            0.0,
+            0.0,
+            &[1],
+            &[9],
+            Some(&[2, 5, 7]),
+        );
+        record_full(&mut data, "farm/farm", 0.0, 0.0, &[1], &[3], Some(&[2, 5]));
+        // A record with no fields beside one with fields, at another farm.
+        record_full(&mut data, "farm/farm", 500.0, 0.0, &[4], &[], None);
+        record_full(&mut data, "farm/farm", 500.0, 0.0, &[5], &[], Some(&[20]));
+        // An oil well's record 2 m from the farm: another spot.
+        record_full(
+            &mut data,
+            "oil_well/oil_well",
+            902.0,
+            0.0,
+            &[6],
+            &[],
+            Some(&[1]),
+        );
+        let mains = HashMap::from([
+            ("industries/farm/farm_sm.mdl".to_owned(), "farm".to_owned()),
+            (
+                "industries/oil_well/oil_well_sm.mdl".to_owned(),
+                "oil_well".to_owned(),
+            ),
+        ]);
+        let mut instances = vec![
+            main_at(0.0, 0.0),
+            main_at(500.0, 0.0),
+            main_of("oil_well", 900.0, 0.0),
+        ];
+        for (n, i) in instances.iter_mut().enumerate() {
+            i.slot = 10 + n;
+        }
+        let free: HashSet<u32> = [9].into();
+        let slots = field_slots(&data, Some(&free), &mains, &instances);
+        assert_eq!(slots.get(&10), Some(&vec![2, 5]));
+        assert_eq!(slots.get(&11), Some(&vec![20]));
+        assert_eq!(slots.get(&12), None);
+        // With no free-id list the first record at the spot wins.
+        let slots = field_slots(&data, None, &mains, &instances);
+        assert_eq!(slots.get(&10), Some(&vec![2, 5, 7]));
+        // The body is read through: the record's lists still come out.
+        let recs = read_constructions(&data);
+        assert_eq!(recs.len(), 5);
+        assert_eq!(recs[1].ids, [1, 3]);
     }
 }

@@ -31,6 +31,15 @@ draw "WR26B Giga Dry v1 1108-1359 generate main connections.sav" texts-deming-qu
     --crop 1700,-8000,4200 --text "-410,-7671=Deming" --text "5163,-9172=Quemado" \
     --text "2019,-9340,small=Deming Logging Camp" \
     --text "-1708,-5795,small=Deming Saw Mill"
+# The maintainer's own played game: an oil well with all its pumpjacks and
+# drilling rigs, a farm with 13 of its 20 plots, and a logging camp with all
+# its plots, the road between them (industry fields).
+draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-oil-well.svg \
+    --crop -6560,-8380,330 --mpp 1
+draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-farm.svg \
+    --crop -5830,-3210,330 --mpp 1
+draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-forest.svg \
+    --crop -2068,24126,330 --mpp 1
 # mod.io 6433459: a wide road in a tunnel under a warehouse.
 draw 6433459.sav warehouse-tunnel.svg --crop -1482,1231,480 --mpp 1
 

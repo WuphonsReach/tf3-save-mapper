@@ -31,7 +31,7 @@ mod zip;
 pub use edges::{Edge, Family, read_edges, read_free_ids, retain_live};
 pub use error::{Error, Result};
 pub use header::{Header, read_header};
-pub use industry_records::retain_standing_industries;
+pub use industry_records::{field_slots, retain_standing_industries};
 pub use install::{Install, Mods};
 pub use instances::{Instance, ModelTable, industry_models, read_instances, read_model_table};
 pub use lanes::{read_lane_ids, retain_laned};

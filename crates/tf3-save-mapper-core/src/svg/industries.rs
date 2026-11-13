@@ -7,12 +7,18 @@
 //! dark grey, upright. With a footprint it is 0.4 of the polygon's shorter
 //! side across and sits on the polygon's centroid (on the origin when the
 //! centroid falls outside); without one it is 64 m across on the origin.
+//!
+//! The fields (a farm's plots, an oil well's pumpjack pads, a mine's pits)
+//! are drawn under the footprint in the same colours, more translucent: the
+//! slots the industry's record lists, shaped and placed by its `.con.lua`
+//! ([`crate::install::industry_fields`]). A water module (a fishing raft, a
+//! drilling ground) is a disc.
 
 use std::collections::{BTreeMap, HashMap};
 
 use super::{Cut, OUTLINE, Picture, escape, fmt1, fmt2, layer, points_attr, safe_id};
 use crate::geometry::{bounds, centroid_inside};
-use crate::install::Polygon;
+use crate::install::{FieldShape, Polygon};
 use crate::instances::Instance;
 
 /// Metres across the badge of an industry with no footprint.
@@ -23,6 +29,38 @@ const BORDER: &str = "#8c8c8c";
 const INK: &str = "#3a3a3a";
 const FOOTPRINT_FILL: &str = "#b44fe8";
 const FOOTPRINT_LINE: &str = "#5b1a8f";
+const FOOTPRINT_OPACITY: &str = "0.45";
+/// The fields are more translucent than the footprint.
+const FIELD_OPACITY: &str = "0.25";
+
+/// The fields to draw: shapes by industry key, slot 1 first, and each
+/// industry's slots by its main instance's `data-slot`.
+#[derive(Clone, Copy)]
+pub(super) struct Fields<'a> {
+    pub shapes: &'a HashMap<String, Vec<Option<FieldShape>>>,
+    pub slots: &'a HashMap<usize, Vec<u32>>,
+}
+
+impl Fields<'_> {
+    /// The fields of one industry: slot number and shape, in slot order.
+    fn of(&self, i: &Instance, key: &str) -> Vec<(u32, &FieldShape)> {
+        let (Some(shapes), Some(slots)) = (self.shapes.get(key), self.slots.get(&i.slot)) else {
+            return Vec::new();
+        };
+        let mut slots = slots.clone();
+        slots.sort_unstable();
+        slots.dedup();
+        slots
+            .into_iter()
+            .filter_map(|n| {
+                let shape = shapes
+                    .get(usize::try_from(n).ok()?.checked_sub(1)?)?
+                    .as_ref()?;
+                Some((n, shape))
+            })
+            .collect()
+    }
+}
 
 /// Outlines for the water industries, which declare no ground face: metres in
 /// the industry's own axes, read off the game's Towns layer in one game
@@ -147,11 +185,24 @@ fn drawn(
     i: &Instance,
     key: &str,
     faces: &HashMap<String, Polygon>,
+    fields: Fields,
 ) -> Vec<(f64, f64)> {
     let around = |(a, b): (f64, f64), r: f64| {
         let (u, v) = picture.pic(i.place(a, b));
         [(u - r, v - r), (u + r, v + r)]
     };
+    let field_points: Vec<(f64, f64)> = fields
+        .of(i, key)
+        .into_iter()
+        .flat_map(|(_, shape)| match shape {
+            FieldShape::Faces(fs) => fs
+                .iter()
+                .flatten()
+                .map(|&(a, b)| picture.pic(i.place(a, b)))
+                .collect::<Vec<_>>(),
+            FieldShape::Disc(c, r) => around(*c, *r).to_vec(),
+        })
+        .collect();
     let face = faces.get(key);
     let (centre, d) = face.map_or(((0.0, 0.0), DIAMETER), |f| face_badge(f));
     let discs = MEASURED_DISCS
@@ -164,6 +215,7 @@ fn drawn(
         .map(|&(a, b)| picture.pic(i.place(a, b)))
         .chain(discs)
         .chain(around(centre, d / 2.0))
+        .chain(field_points)
         .collect()
 }
 
@@ -180,11 +232,12 @@ pub(super) fn layers(
     picture: &Picture,
     rows: &[(Instance, String)],
     faces: &HashMap<String, Polygon>,
+    fields: Fields,
     cut: Cut,
 ) -> Vec<String> {
     let rows: Vec<&(Instance, String)> = rows
         .iter()
-        .filter(|(i, key)| cut.meets(&drawn(picture, i, key, faces), OUTLINE / 2.0))
+        .filter(|(i, key)| cut.meets(&drawn(picture, i, key, faces, fields), OUTLINE / 2.0))
         .collect();
     if rows.is_empty() {
         return Vec::new();
@@ -210,6 +263,50 @@ pub(super) fn layers(
     }
     out.push("</defs>".into());
 
+    let fielded: Vec<_> = rows
+        .iter()
+        .map(|(i, k)| (i, k.as_str(), fields.of(i, k)))
+        .filter(|(_, _, f)| !f.is_empty())
+        .collect();
+    if !fielded.is_empty() {
+        out.push(layer("industry-fields", "Industries: fields", ""));
+        for (i, key, list) in fielded {
+            for (n, shape) in list {
+                let head = format!(
+                    "class=\"industry-field\" data-slot=\"{}\" data-key=\"{}\" data-field=\"{n}\"",
+                    i.slot,
+                    escape(key)
+                );
+                let paint = format!(
+                    "fill=\"{FOOTPRINT_FILL}\" fill-opacity=\"{FIELD_OPACITY}\" stroke=\"{FOOTPRINT_LINE}\" \
+                     stroke-width=\"{OUTLINE}\""
+                );
+                match shape {
+                    FieldShape::Faces(fs) => {
+                        for f in fs {
+                            let pts: Vec<(f64, f64)> =
+                                f.iter().map(|&(a, b)| picture.pic(i.place(a, b))).collect();
+                            out.push(format!(
+                                "<polygon {head} points=\"{}\" {paint} stroke-linejoin=\"round\"/>",
+                                points_attr(&pts)
+                            ));
+                        }
+                    }
+                    FieldShape::Disc((a, b), r) => {
+                        let (cx, cy) = picture.pic(i.place(*a, *b));
+                        out.push(format!(
+                            "<circle {head} cx=\"{}\" cy=\"{}\" r=\"{}\" {paint}/>",
+                            fmt2(cx),
+                            fmt2(cy),
+                            fmt2(*r)
+                        ));
+                    }
+                }
+            }
+        }
+        out.push("</g>".into());
+    }
+
     let shaped: Vec<(&Instance, &str)> = rows
         .iter()
         .filter(|(_, k)| faces.contains_key(k))
@@ -226,7 +323,7 @@ pub(super) fn layers(
                 let (cx, cy) = picture.pic(i.place(a, b));
                 out.push(format!(
                     "<circle class=\"industry-footprint\" data-slot=\"{}\" data-key=\"{}\" cx=\"{}\" cy=\"{}\" r=\"{}\" \
-                     fill=\"{FOOTPRINT_FILL}\" fill-opacity=\"0.45\" stroke=\"{FOOTPRINT_LINE}\" stroke-width=\"{OUTLINE}\"/>",
+                     fill=\"{FOOTPRINT_FILL}\" fill-opacity=\"{FOOTPRINT_OPACITY}\" stroke=\"{FOOTPRINT_LINE}\" stroke-width=\"{OUTLINE}\"/>",
                     i.slot,
                     escape(key),
                     fmt2(cx),
@@ -240,7 +337,7 @@ pub(super) fn layers(
                 .collect();
             out.push(format!(
                 "<polygon class=\"industry-footprint\" data-slot=\"{}\" data-key=\"{}\" points=\"{}\" \
-                 fill=\"{FOOTPRINT_FILL}\" fill-opacity=\"0.45\" stroke=\"{FOOTPRINT_LINE}\" stroke-width=\"{OUTLINE}\" \
+                 fill=\"{FOOTPRINT_FILL}\" fill-opacity=\"{FOOTPRINT_OPACITY}\" stroke=\"{FOOTPRINT_LINE}\" stroke-width=\"{OUTLINE}\" \
                  stroke-linejoin=\"round\"/>",
                 i.slot,
                 escape(key),
@@ -313,6 +410,56 @@ mod tests {
         )
     }
 
+    fn no_fields() -> Fields<'static> {
+        Fields {
+            shapes: Box::leak(Box::default()),
+            slots: Box::leak(Box::default()),
+        }
+    }
+
+    #[test]
+    fn fields_are_drawn_under_the_footprint_in_slot_order() {
+        let picture = Picture {
+            width: 1000.0,
+            height: 1000.0,
+            north: crate::svg::North::Game,
+        };
+        let faces = HashMap::from([(
+            "farm".to_owned(),
+            vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)],
+        )]);
+        let square = |a: f64| vec![(a, 0.0), (a + 10.0, 0.0), (a + 10.0, 10.0), (a, 10.0)];
+        let shapes = HashMap::from([(
+            "farm".to_owned(),
+            vec![
+                Some(FieldShape::Faces(vec![square(20.0)])),
+                None,
+                Some(FieldShape::Disc((0.0, 50.0), 13.0)),
+            ],
+        )]);
+        // Slot 2 has no shape and slot 9 is past the table: both left out.
+        let slots = HashMap::from([(3, vec![3, 9, 2, 1])]);
+        let fields = Fields {
+            shapes: &shapes,
+            slots: &slots,
+        };
+        let text = layers(&picture, &[farm(0.0, 0.0)], &faces, fields, Cut(None)).join("\n");
+        let first = text.find("data-field=\"1\"").expect("slot 1");
+        let third = text.find("data-field=\"3\"").expect("slot 3");
+        let footprint = text.find("class=\"industry-footprint\"").unwrap();
+        assert!(first < third && third < footprint, "{text}");
+        assert!(!text.contains("data-field=\"2\"") && !text.contains("data-field=\"9\""));
+        assert!(text.contains(
+            "<polygon class=\"industry-field\" data-slot=\"3\" data-key=\"farm\" data-field=\"1\" \
+             points=\"520.00,500.00 530.00,500.00 530.00,490.00 520.00,490.00\" fill=\"#b44fe8\" fill-opacity=\"0.25\""
+        ), "{text}");
+        assert!(text.contains("<circle class=\"industry-field\" data-slot=\"3\" data-key=\"farm\" data-field=\"3\" cx=\"500.00\" cy=\"450.00\" r=\"13.00\""));
+        // A field alone reaching into a crop brings its industry in.
+        let cut = Cut(Some((515.0, 535.0, 485.0, 505.0)));
+        assert!(!layers(&picture, &[farm(0.0, 0.0)], &faces, fields, cut).is_empty());
+        assert!(layers(&picture, &[farm(0.0, 0.0)], &faces, no_fields(), cut).is_empty());
+    }
+
     #[test]
     fn every_icon_has_a_drawing() {
         for (key, file) in ICONS {
@@ -331,7 +478,14 @@ mod tests {
             "farm".to_owned(),
             vec![(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)],
         )]));
-        let text = layers(&picture, &[farm(10.0, 20.0)], &faces, Cut(None)).join("\n");
+        let text = layers(
+            &picture,
+            &[farm(10.0, 20.0)],
+            &faces,
+            no_fields(),
+            Cut(None),
+        )
+        .join("\n");
         // 0.4 of the 50 m side, on the centroid (50, 25) from the origin.
         assert!(text.contains("data-diameter=\"20.0\""), "{text}");
         assert!(
@@ -352,7 +506,14 @@ mod tests {
             height: 1000.0,
             north: crate::svg::North::Game,
         };
-        let text = layers(&picture, &[farm(0.0, 0.0)], &HashMap::new(), Cut(None)).join("\n");
+        let text = layers(
+            &picture,
+            &[farm(0.0, 0.0)],
+            &HashMap::new(),
+            no_fields(),
+            Cut(None),
+        )
+        .join("\n");
         assert!(text.contains("data-diameter=\"64.0\""));
         assert!(text.contains("<circle cx=\"500.00\" cy=\"500.00\""));
         assert!(!text.contains("industry-footprints"));

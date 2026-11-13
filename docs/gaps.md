@@ -14,6 +14,7 @@ Where an entry says how many saves something is in, the count is from a model co
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
 - **Regenerated industries:** an old fishing ground or oil platform (no road node of its own) is left out only once one of its ids names a road node elsewhere; until then it is drawn (5 in mod.io 6421142).
 - **Deleted industries:** an industry's other pieces (fences, sheds, fields) stay after the editor deletes or regenerates it, and in 6443471 the free-id list reads wrong so every industry is taken as deleted.
+- **Fields:** a fishing raft's kind is picked at random by the game, so its circle can be the wrong size; a mod industry's fields are not read; an industry with no record at its spot has none.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
 - **Map key options**: where the key is drawn, how big it is, and the compass folded into its box (asked for).
 - **Possible layers** the notes make room for: speed limits, electrified track, tram streets, parcel cells, lot tint, terrain changes between two saves, sunrise and sunset on the rose.
@@ -44,6 +45,14 @@ The roundhouse and the modern depot are drawn from their pieces' model boxes (`i
 ## Mod industries
 
 - **Industries with no main model** An industry is drawn from its main model (`industries/KEY/KEY_sm.mdl`, or the folder's `_particles.mdl`, `instances::industry_models`). A mod's industry can be built from the base game's industry pieces and its own assets with no such model: two military depots in a 1917 game, a weapons depot of saw mill buildings (`industries/saw_mill/msc_hangar.mdl`, `saw_mill_building.mdl`, `drying_kiln.mdl`, a brick works hangar) and a shell export depot of brick works, machine and tool factory pieces with `assets/military/shell_rack/` and `shell_depot_roads/`, both fenced with `assets/military/security_fence/`. The game shows both in its industries layer, and their entrance stubs are drawn, but the map has no marker or footprint for them. The loose-piece filter counts any `industries/` model, so their stubs stay. Their sidings are left out with every other industry's (`sidings::retain_without_sidings`), so with no footprint in their place the stub ends at nothing. Needs: a way to group an industry's pieces with no main model (by the mod's construction script from the mods folder, or by clustering the pieces round the entrance stub), then a footprint from the pieces' boxes.
+
+## Fields
+
+An industry's fields are the slots its construction record's `modules` table lists, shaped and placed from `fieldConfig.fields` in the industry's `.con.lua` (`install::industry_fields`): a plot of the row's size, the module's ground faces, or for a water module (no ground face) a circle of half its collider box's longer side.
+
+- **Fishing rafts' kind** The fishing ground's modules script ignores the slot's `type` and picks the plain raft or the raft with a platform (a 26 or 33 m collider box, turned 0 to 270 degrees for the second) from the construction's seed. The circle follows the slot's listed type, so its radius (13 or 16.5 m) can be the other kind's. Needs: the game's choice, which a Lua random generator seeded the same way would reproduce, or a look at the raft models' instances at each slot.
+- **Mod industries' fields** Only the base game's `industries/*.zip` are read; a mod's industry with field slots gets its footprint from neither, as now. Needs: the same reading from the mods folder, as for mod depots.
+- **An industry with no record** Fields come from the record of the same key within 1 m of the main model. In the maintainer's own game one oil well marker stands at (0, 100), the map's centre, with no record there, and gets none (5 pumpjack and drilling rig models stand round it at its slot places). Whether the game shows an oil well there was not checked: it may be a preview left in the save.
 
 ## Small
 
@@ -77,7 +86,7 @@ None of these is asked for yet; each has a reader in tf3-save-format's `tools/`.
 - **Signals:** each is an entry in its edge's object list, but its place along the edge, side and direction are not found (`signals.md`).
 - **Traffic lights:** in the junction table, which has no reader (`junctions.md`).
 - **Line routes and stops:** nothing ties a line to edges or a vehicle to its line (`gaps/owners-and-links.md`).
-- **Industry figures:** stock, closing date, a farm's fields: no rule links an industry's entity to its model instance (`industries.md`, `industry-lifecycle.md`, `farm-fields.md`).
+- **Industry figures:** stock and closing date: no rule links an industry's entity to its model instance (`industries.md`, `industry-lifecycle.md`). A farm's fields are not blocked: they are drawn from the construction record's `modules` (`farm-fields.md`, `industry_records::field_slots`).
 - **Trees and forests:** placed and painted trees are records with positions, but which models are trees and how a generated map's forests are stored are open (`models.md`, `terrain.md`).
 
 - **Deleted industries' other pieces, and 6443471** `tf3map` leaves out the main instance of an industry deleted in the map editor, of an older record copy stacked at the same spot, and of the old set an editor regenerate leaves behind (`industry_records.rs`; the first two rules are in tf3-save-format's `docs/industry-records.md`, the third is not there yet). Fences, sheds and fields of a deleted or replaced industry are not dropped: no link from a piece to its record is known, and they are not drawn as markers, but they still count as industry models for the loose-piece filter. In 6443471 the free-id list read holds 1,585 of the 1,621 road nodes, so the industries layer (and the dead-road filter) take almost everything as deleted: 0 industries where 15 stand. Needs: a better source of free ids, such as the entity table's free entries; no special case for one map.
