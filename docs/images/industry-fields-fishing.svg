@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="504" height="504" viewBox="1804 716 504 504">
+<title>Terrain, roads and rails</title>
+<desc>Transport Fever 3 save, format 604, map 8192 x 8192 m, climate ::/climates/temperate/temperate.clima, seed G1y8CzhLit</desc>
+<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="8192" map-height="8192" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="-2292" x-max="-1788" y-min="2876" y-max="3380" crop-x="-2040" crop-y="3128" crop-radius="250" generator="tf3map" generator-version="0.10.0" generator-commit="6e9c7c1e75"/></metadata>
+<g id="background" class="layer" data-layer="background" inkscape:groupmode="layer" inkscape:label="Background"><rect x="1804" y="716" width="504" height="504" fill="#ffffff"/></g>
+<g id="terrain" class="layer" data-layer="terrain" inkscape:groupmode="layer" inkscape:label="Terrain" transform="translate(1804 716)">
+<g id="land" class="layer" data-layer="land" inkscape:groupmode="layer" inkscape:label="Land"><rect width="504" height="504" fill="#aac380"/></g>
+<g id="bands" class="layer" data-layer="bands" inkscape:groupmode="layer" inkscape:label="Height bands" stroke="none">
+<path class="band" data-height="20" fill="#82af69" fill-rule="evenodd" d="M0 0H504V504H0ZM0 0L0 231.5L10.5 240L16 243.2L20 246.7L32 264.2L36 268.5L40 271.4L48 275.7L51.8 280L53.8 288L54.1 292L53.1 300L54.3 304L65.3 316L67.4 320L68.5 328L67.6 336L64.2 352L64.8 360L68.5 372L69.9 380L69 400L70.1 416L69.5 424L67.1 432L61.6 444L56 452.9L52.8 460L51.8 464L50.9 476L49.6 480L47.2 484L44 486.9L35.5 492L30.7 496L28.5 500L27.9 504L95.5 504L104 501.6L108 501.3L117.4 504L504 504L504 0Z"/>
+<path class="band" data-height="40" fill="#8ca969" fill-rule="evenodd" d="M0 0H504V504H0ZM0 0L0 279.2L12 292.6L17.4 300L22.1 308L27.7 320L31.2 332L32.5 340L32.9 352L33.8 356L35.9 360L48 371.2L50.9 376L52.9 384L51.9 400L52.2 404L54.4 412L55.5 420L53.6 428L51.8 432L46.6 440L39.4 456L34.9 468L32 472.5L23 480L19.7 484L17.7 488L15.6 496L15.7 504L504 504L504 0Z"/>
+<path class="band" data-height="60" fill="#96a469" fill-rule="evenodd" d="M0 0H504V504H0ZM0 0L0 345.9L8.3 364L11.2 376L20.4 392L24.1 400L27.3 416L29.1 420L31.5 428L31.5 432L24.2 456L20 461.5L9.5 472L6.7 476L4.9 480L3.3 488L2.1 504L504 504L504 0Z"/>
+</g>
+<g id="water" class="layer" data-layer="water" inkscape:groupmode="layer" inkscape:label="Water"><path class="water" fill="#78afdc" fill-rule="evenodd" stroke="#4a86b8" stroke-width="0.5" stroke-linejoin="round" d="M0 0L0 191.7L12 196.6L17.5 200L21.8 204L30.8 216L34.5 220L48 229.2L52 233.1L55.9 240L60.5 252L69.1 264L73 272L75.1 292L76.2 296L81.7 308L84 316L83.9 324L79.4 348L80.3 356L87.1 372L88 376L88.3 384L86.5 400L87.8 412L87.6 416L80.2 436L77.6 452L75.6 460L72 468L64.9 480L61.1 488L63.3 492L72 494.8L80 494.9L88 493.1L100 486.9L104 485.7L108 485.5L116 487.2L144 496.2L152 496.5L164 496.1L172 497.1L180 499.8L188.5 504L504 504L504 0Z"/></g>
+<g id="contours" class="layer" data-layer="contours" inkscape:groupmode="layer" inkscape:label="Height lines">
+<g id="contours-minor" class="layer" data-layer="contours-minor" inkscape:groupmode="layer" inkscape:label="Height lines: minor" fill="none" stroke="#b8996a" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round">
+<path class="contour" data-height="20" d="M0 231.5L10.5 240L16 243.2L20 246.7L32 264.2L36 268.5L40 271.4L48 275.7L51.8 280L53.8 288L54.1 292L53.1 300L54.3 304L65.3 316L67.4 320L68.5 328L67.6 336L64.2 352L64.8 360L68.5 372L69.9 380L69 400L70.1 416L69.5 424L67.1 432L61.6 444L56 452.9L52.8 460L51.8 464L50.9 476L49.6 480L47.2 484L44 486.9L35.5 492L30.7 496L28.5 500L27.9 504M95.5 504L104 501.6L108 501.3L117.4 504"/>
+<path class="contour" data-height="40" d="M0 279.2L12 292.6L17.4 300L22.1 308L27.7 320L31.2 332L32.5 340L32.9 352L33.8 356L35.9 360L48 371.2L50.9 376L52.9 384L51.9 400L52.2 404L54.4 412L55.5 420L53.6 428L51.8 432L46.6 440L39.4 456L34.9 468L32 472.5L23 480L19.7 484L17.7 488L15.6 496L15.7 504"/>
+<path class="contour" data-height="60" d="M0 345.9L8.3 364L11.2 376L20.4 392L24.1 400L27.3 416L29.1 420L31.5 428L31.5 432L24.2 456L20 461.5L9.5 472L6.7 476L4.9 480L3.3 488L2.1 504"/>
+</g>
+<g id="contours-index" class="layer" data-layer="contours-index" inkscape:groupmode="layer" inkscape:label="Height lines: index" fill="none" stroke="#7a5230" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+</g>
+</g>
+</g>
+<g id="grid" class="layer" data-layer="grid" inkscape:groupmode="layer" inkscape:label="Grid 100 m" pointer-events="none">
+<g id="grid-minor" class="layer" data-layer="grid-minor" inkscape:groupmode="layer" inkscape:label="Grid minor">
+</g>
+<g id="grid-major" class="layer" data-layer="grid-major" inkscape:groupmode="layer" inkscape:label="Grid major">
+<path d="M1886 796h20M1896 786v20M1886 896h20M1896 886v20M1886 996h20M1896 986v20M1886 1096h20M1896 1086v20M1886 1196h20M1896 1186v20M1986 796h20M1996 786v20M1986 896h20M1996 886v20M1986 996h20M1996 986v20M1986 1096h20M1996 1086v20M1986 1196h20M1996 1186v20M2086 796h20M2096 786v20M2086 896h20M2096 886v20M2086 996h20M2096 986v20M2086 1096h20M2096 1086v20M2086 1196h20M2096 1186v20M2186 796h20M2196 786v20M2186 896h20M2196 886v20M2186 996h20M2196 986v20M2186 1096h20M2196 1086v20M2186 1196h20M2196 1186v20M2286 796h20M2296 786v20M2286 896h20M2296 886v20M2286 996h20M2296 986v20M2286 1096h20M2296 1086v20M2286 1196h20M2296 1186v20" fill="none" stroke="#6b3fa0" stroke-opacity="0.85" stroke-width="1.5"/>
+</g>
+</g>
+<g id="roads" class="layer" data-layer="roads" inkscape:groupmode="layer" inkscape:label="Roads">
+</g>
+<g id="rails" class="layer" data-layer="rails" inkscape:groupmode="layer" inkscape:label="Rails">
+</g>
+<g id="industries" class="layer" data-layer="industries" inkscape:groupmode="layer" inkscape:label="Industries" pointer-events="none">
+<defs>
+<symbol id="industry-icon-fishing_grounds" viewBox="0 0 64 64"><g fill="currentColor"><path fill-rule="evenodd" d="M4 30Q20 10 40 20L46 24L58 12Q56 24 56 28Q56 32 58 44L46 34L40 38Q20 48 4 30ZM14.4 27a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0Z"/><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 54Q8 50 14 54T26 54T38 54T50 54T62 54"/><path d="M8 62Q14 58 20 62T32 62T44 62T56 62" opacity="1"/></g></g></symbol>
+<symbol id="industry-icon-sand_excavator" viewBox="0 0 64 64"><g fill="currentColor"><path d="M4 38H60L53 50H11Z"/><path d="M38 24H50V35H38Z"/><g fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 36L22 14L34 36M22 22L9 54"/></g><circle cx="9" cy="54" r="5"/><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 60Q8 56 14 60T26 60T38 60T50 60T62 60"/></g></g></symbol>
+</defs>
+<g id="industry-fields" class="layer" data-layer="industry-fields" inkscape:groupmode="layer" inkscape:label="Industries: fields">
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="1" cx="2123.27" cy="1075.12" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="2" cx="2084.41" cy="1084.59" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="3" cx="2045.55" cy="1094.06" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="4" cx="2093.88" cy="1123.45" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="5" cx="2055.02" cy="1132.92" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="6" cx="2132.75" cy="1113.98" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="7" cx="2008.16" cy="856.15" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="8" cx="2047.02" cy="846.68" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="9" cx="2056.98" cy="803.08" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="10" cx="1979.25" cy="822.02" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="11" cx="2018.12" cy="812.55" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="12" cx="1978.27" cy="986.94" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="13" cx="1944.15" cy="1015.84" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="14" cx="1934.68" cy="976.98" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="15" cx="2138.46" cy="968.49" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="16" cx="2128.99" cy="929.63" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="17" cx="2177.32" cy="959.02" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="145822" data-key="fishing_grounds" data-field="18" cx="2167.85" cy="920.16" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="357661" data-key="sand_excavator" data-field="2" cx="2486.60" cy="1194.34" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="357661" data-key="sand_excavator" data-field="3" cx="2289.48" cy="950.94" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="357661" data-key="sand_excavator" data-field="7" cx="2289.59" cy="1069.79" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="357661" data-key="sand_excavator" data-field="8" cx="2504.99" cy="1067.90" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="357661" data-key="sand_excavator" data-field="9" cx="2474.63" cy="993.88" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+</g>
+<g id="industry-footprints" class="layer" data-layer="industry-footprints" inkscape:groupmode="layer" inkscape:label="Industries: footprints">
+<polygon class="industry-footprint" data-slot="145822" data-key="fishing_grounds" points="2088.23,931.33 2028.00,946.00 2031.59,960.77 2015.56,964.68 2023.50,997.23 2090.05,981.01 2098.53,973.59" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+<polygon class="industry-footprint" data-slot="357661" data-key="sand_excavator" points="2412.33,1004.85 2353.39,1029.02 2394.57,1129.41 2453.51,1105.23" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-fishing_grounds" class="layer" data-layer="industry-fishing_grounds" inkscape:groupmode="layer" inkscape:label="Industries: fishing_grounds" data-key="fishing_grounds">
+<g class="industry" data-slot="145822" data-key="fishing_grounds" data-model="industries/fishing_grounds/fg_particles.mdl" data-x="-2040.0" data-y="3128.0" data-diameter="19.5"><circle cx="2057.98" cy="964.81" r="9.44" fill="#ffffff" stroke="#8c8c8c" stroke-width="0.61"/>
+<use xlink:href="#industry-icon-fishing_grounds" x="2050.97" y="957.80" width="14.03" height="14.03" color="#3a3a3a"/>
+</g>
+</g>
+<g id="industry-sand_excavator" class="layer" data-layer="industry-sand_excavator" inkscape:groupmode="layer" inkscape:label="Industries: sand_excavator" data-key="sand_excavator">
+<g class="industry" data-slot="357661" data-key="sand_excavator" data-model="industries/sand_excavator/sand_excavator.mdl" data-x="-1684.0" data-y="3044.0" data-diameter="25.5"><circle cx="2403.45" cy="1067.13" r="12.34" fill="#ffffff" stroke="#8c8c8c" stroke-width="0.80"/>
+<use xlink:href="#industry-icon-sand_excavator" x="2394.28" y="1057.95" width="18.35" height="18.35" color="#3a3a3a"/>
+</g>
+</g>
+</g>
+<g id="grid-labels" class="layer" data-layer="grid-labels" inkscape:groupmode="layer" inkscape:label="Grid labels" pointer-events="none">
+<text x="1898.1" y="723.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x -2200</text>
+<text x="1998.1" y="723.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x -2100</text>
+<text x="2098.1" y="723.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x -2000</text>
+<text x="2198.1" y="723.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x -1900</text>
+<text x="1806.1" y="793.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y 3300</text>
+<text x="1806.1" y="893.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y 3200</text>
+<text x="1806.1" y="993.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y 3100</text>
+<text x="1806.1" y="1093.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y 3000</text>
+<text x="1806.1" y="1193.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y 2900</text>
+</g>
+<g id="compass" class="layer" data-layer="compass" inkscape:groupmode="layer" inkscape:label="Compass rose">
+<circle cx="2283.8" cy="1195.8" r="21.0" fill="#ffffff" stroke="#000000" stroke-width="0.63"/>
+<path d="M2283.8 1195.8L2283.8 1180.3M2283.8 1195.8L2283.8 1203.6M2283.8 1195.8L2291.6 1195.8M2283.8 1195.8L2276.1 1195.8" stroke="#000000" stroke-width="1.35" fill="none"/>
+<path d="M2283.8 1177.1L2287.0 1184.4L2280.7 1184.4z" fill="#000000"/>
+<text x="2296.9" y="1198.9" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">E</text>
+<text x="2283.8" y="1212.0" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">S</text>
+<text x="2270.8" y="1198.9" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">W</text>
+</g>
+</svg>

@@ -40,8 +40,14 @@ draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-farm
     --crop -5830,-3210,330 --mpp 1
 draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-forest.svg \
     --crop -2068,24126,330 --mpp 1
+# The same game: an oil platform and the circles of its eight drilling
+# grounds.
+draw "WR26C-play/WR26C-Giga-Dry-v1 PLAY 1911 1113-0645.sav" industry-fields-oil-platform.svg \
+    --crop 3190,-515,250 --mpp 1
 # mod.io 6433459: a wide road in a tunnel under a warehouse.
 draw 6433459.sav warehouse-tunnel.svg --crop -1482,1231,480 --mpp 1
+# mod.io 6433459: a fishing ground and the circles of its rafts.
+draw 6433459.sav industry-fields-fishing.svg --crop -2040,3128,250 --mpp 1
 
 # Grades (docs/grades.md), all from saves published in the mod.io catalogue.
 # mod.io 6414627: a helix of six rings, centred, with the line out of it.

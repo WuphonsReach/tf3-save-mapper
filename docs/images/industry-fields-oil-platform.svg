@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="500" height="504" viewBox="11132 24840 500 504">
+<title>Terrain, roads and rails</title>
+<desc>Transport Fever 3 save, format 605, map 16384 x 49152 m, climate ::/climates/dry/dry.clima, seed pYF6Rz3A7K</desc>
+<metadata><tf3map:view xmlns:tf3map="urn:tf3-save-format:terrain-map:1" map-width="16384" map-height="49152" metres-per-pixel="1" orientation="north-up (game): image up is +y, image right is +x" north="game" x-min="2940" x-max="3440" y-min="-768" y-max="-264" crop-x="3190" crop-y="-515" crop-radius="250" generator="tf3map" generator-version="0.10.0" generator-commit="6e9c7c1e75"/></metadata>
+<g id="background" class="layer" data-layer="background" inkscape:groupmode="layer" inkscape:label="Background"><rect x="11132" y="24840" width="500" height="504" fill="#ffffff"/></g>
+<g id="terrain" class="layer" data-layer="terrain" inkscape:groupmode="layer" inkscape:label="Terrain" transform="translate(11132 24840)">
+<g id="land" class="layer" data-layer="land" inkscape:groupmode="layer" inkscape:label="Land"><rect width="500" height="504" fill="#aac380"/></g>
+<g id="bands" class="layer" data-layer="bands" inkscape:groupmode="layer" inkscape:label="Height bands" stroke="none">
+</g>
+<g id="water" class="layer" data-layer="water" inkscape:groupmode="layer" inkscape:label="Water"><path class="water" fill="#78afdc" fill-rule="evenodd" stroke="#4a86b8" stroke-width="0.5" stroke-linejoin="round" d="M0 0L0 504L500 504L500 0Z"/></g>
+<g id="contours" class="layer" data-layer="contours" inkscape:groupmode="layer" inkscape:label="Height lines">
+<g id="contours-minor" class="layer" data-layer="contours-minor" inkscape:groupmode="layer" inkscape:label="Height lines: minor" fill="none" stroke="#b8996a" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round">
+</g>
+<g id="contours-index" class="layer" data-layer="contours-index" inkscape:groupmode="layer" inkscape:label="Height lines: index" fill="none" stroke="#7a5230" stroke-width="1" stroke-linejoin="round" stroke-linecap="round">
+</g>
+</g>
+</g>
+<g id="grid" class="layer" data-layer="grid" inkscape:groupmode="layer" inkscape:label="Grid 100 m" pointer-events="none">
+<g id="grid-minor" class="layer" data-layer="grid-minor" inkscape:groupmode="layer" inkscape:label="Grid minor">
+</g>
+<g id="grid-major" class="layer" data-layer="grid-major" inkscape:groupmode="layer" inkscape:label="Grid major">
+<path d="M11182 24876h20M11192 24866v20M11182 24976h20M11192 24966v20M11182 25076h20M11192 25066v20M11182 25176h20M11192 25166v20M11182 25276h20M11192 25266v20M11282 24876h20M11292 24866v20M11282 24976h20M11292 24966v20M11282 25076h20M11292 25066v20M11282 25176h20M11292 25166v20M11282 25276h20M11292 25266v20M11382 24876h20M11392 24866v20M11382 24976h20M11392 24966v20M11382 25076h20M11392 25066v20M11382 25176h20M11392 25166v20M11382 25276h20M11392 25266v20M11482 24876h20M11492 24866v20M11482 24976h20M11492 24966v20M11482 25076h20M11492 25066v20M11482 25176h20M11492 25166v20M11482 25276h20M11492 25266v20M11582 24876h20M11592 24866v20M11582 24976h20M11592 24966v20M11582 25076h20M11592 25066v20M11582 25176h20M11592 25166v20M11582 25276h20M11592 25266v20" fill="none" stroke="#6b3fa0" stroke-opacity="0.85" stroke-width="1.5"/>
+</g>
+</g>
+<g id="roads" class="layer" data-layer="roads" inkscape:groupmode="layer" inkscape:label="Roads">
+</g>
+<g id="rails" class="layer" data-layer="rails" inkscape:groupmode="layer" inkscape:label="Rails">
+</g>
+<g id="industries" class="layer" data-layer="industries" inkscape:groupmode="layer" inkscape:label="Industries" pointer-events="none">
+<defs>
+<symbol id="industry-icon-oil_platform" viewBox="0 0 64 64"><g fill="currentColor"><rect x="8" y="30" width="48" height="6" rx="1"/><g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 36L12 56M26 36L26 56M38 36L38 56M50 36L52 56M14 40L26 52M26 40L14 52"/></g><g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M24 30L32 6L40 30M27 22H37M25 27H39"/></g><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 60Q8 56 14 60T26 60T38 60T50 60T62 60"/></g><rect x="44" y="22" width="12" height="6"/><rect x="45" y="18" width="3" height="4"/><path d="M8 30V20L4 14"  fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><path d="M4 14Q1 10 4 6Q9 9 4 14Z"/></g></symbol>
+</defs>
+<g id="industry-fields" class="layer" data-layer="industry-fields" inkscape:groupmode="layer" inkscape:label="Industries: fields">
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="1" cx="11394.98" cy="25264.09" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="2" cx="11491.74" cy="25238.83" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="3" cx="11324.26" cy="24993.17" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="4" cx="11421.02" cy="24967.91" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="5" cx="11354.96" cy="24912.81" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="6" cx="11263.29" cy="25195.11" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="7" cx="11243.08" cy="25117.70" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-field" data-slot="731197" data-key="oil_platform" data-field="9" cx="11533.36" cy="25041.94" r="13.00" fill="#b44fe8" fill-opacity="0.25" stroke="#5b1a8f" stroke-width="1.5"/>
+</g>
+<g id="industry-footprints" class="layer" data-layer="industry-footprints" inkscape:groupmode="layer" inkscape:label="Industries: footprints">
+<circle class="industry-footprint" data-slot="731197" data-key="oil_platform" cx="11354.78" cy="25129.89" r="5.50" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5"/>
+<circle class="industry-footprint" data-slot="731197" data-key="oil_platform" cx="11461.22" cy="25102.11" r="5.50" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5"/>
+<polygon class="industry-footprint" data-slot="731197" data-key="oil_platform" points="11437.94,25133.71 11424.26,25081.27 11387.29,25090.92 11385.10,25089.63 11376.68,25091.83 11372.32,25099.27 11374.52,25107.69 11381.35,25111.69 11390.34,25146.14 11410.37,25140.91 11414.36,25168.08 11418.23,25167.07 11414.24,25139.90" fill="#b44fe8" fill-opacity="0.45" stroke="#5b1a8f" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+<g id="industry-oil_platform" class="layer" data-layer="industry-oil_platform" inkscape:groupmode="layer" inkscape:label="Industries: oil_platform" data-key="oil_platform">
+<g class="industry" data-slot="731197" data-key="oil_platform" data-model="industries/oil_platform/oil_platform_sm.mdl" data-x="3216.0" data-y="-540.0" data-diameter="21.9"><circle cx="11406.54" cy="25114.79" r="10.62" fill="#ffffff" stroke="#8c8c8c" stroke-width="0.69"/>
+<use xlink:href="#industry-icon-oil_platform" x="11398.65" y="25106.90" width="15.78" height="15.78" color="#3a3a3a"/>
+</g>
+</g>
+</g>
+<g id="grid-labels" class="layer" data-layer="grid-labels" inkscape:groupmode="layer" inkscape:label="Grid labels" pointer-events="none">
+<text x="11194.1" y="24847.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x 3000</text>
+<text x="11294.1" y="24847.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x 3100</text>
+<text x="11394.1" y="24847.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x 3200</text>
+<text x="11494.1" y="24847.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x 3300</text>
+<text x="11594.1" y="24847.7" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">x 3400</text>
+<text x="11134.1" y="24873.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y -300</text>
+<text x="11134.1" y="24973.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y -400</text>
+<text x="11134.1" y="25073.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y -500</text>
+<text x="11134.1" y="25173.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y -600</text>
+<text x="11134.1" y="25273.9" font-family="sans-serif" font-size="7" fill="#000" stroke="#fff" stroke-width="1.4" paint-order="stroke">y -700</text>
+</g>
+<g id="compass" class="layer" data-layer="compass" inkscape:groupmode="layer" inkscape:label="Compass rose">
+<circle cx="11608.0" cy="25320.0" r="20.8" fill="#ffffff" stroke="#000000" stroke-width="0.62"/>
+<path d="M11608.0 25320.0L11608.0 25304.6M11608.0 25320.0L11608.0 25327.8M11608.0 25320.0L11615.8 25320.0M11608.0 25320.0L11600.3 25320.0" stroke="#000000" stroke-width="1.34" fill="none"/>
+<path d="M11608.0 25301.5L11611.1 25308.7L11604.9 25308.7z" fill="#000000"/>
+<text x="11621.0" y="25323.1" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">E</text>
+<text x="11608.0" y="25336.1" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">S</text>
+<text x="11595.0" y="25323.1" text-anchor="middle" font-family="sans-serif" font-size="8.8" font-weight="bold" fill="#000000">W</text>
+</g>
+</svg>
