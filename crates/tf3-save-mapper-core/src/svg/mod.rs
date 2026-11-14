@@ -36,7 +36,7 @@ use std::io::{self, Write};
 
 use crate::edges::{Edge, Family};
 use crate::header::Header;
-use crate::install::{DepotSpec, Polygon, Rect, WarehouseModel};
+use crate::install::{DepotSpec, FieldShape, Polygon, Rect, WarehouseModel};
 use crate::instances::Instance;
 use crate::structures::Structure;
 use crate::terrain::{GRID_STEP, Terrain};
@@ -240,6 +240,11 @@ pub struct Layers {
     pub industries: Vec<(Instance, String)>,
     /// Ground faces by industry key, in the industry's own axes.
     pub industry_faces: HashMap<String, Polygon>,
+    /// Field shapes by industry key, slot 1 first (`install::industry_fields`).
+    pub industry_fields: HashMap<String, Vec<Option<FieldShape>>>,
+    /// Each industry's field slots by its main instance's `data-slot`
+    /// (`industry_records::field_slots`).
+    pub industry_field_slots: HashMap<usize, Vec<u32>>,
     pub depots: Vec<Instance>,
     /// Depots and maintenance buildings drawn as their coverage circles.
     pub coverage: Vec<Instance>,
@@ -629,7 +634,16 @@ pub fn write_svg(
     write_lines(out, &stations_over)?;
     write_lines(
         out,
-        &industries::layers(&picture, &industry_rows, &layers.industry_faces, cut),
+        &industries::layers(
+            &picture,
+            &industry_rows,
+            &layers.industry_faces,
+            industries::Fields {
+                shapes: &layers.industry_fields,
+                slots: &layers.industry_field_slots,
+            },
+            cut,
+        ),
     )?;
     write_lines(
         out,

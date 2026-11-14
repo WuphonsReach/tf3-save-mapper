@@ -14,10 +14,10 @@ use tf3_save_mapper_core::svg::{
 };
 use tf3_save_mapper_core::{
     Edge, Family, Header, Install, Instance, Layers, Mods, Structure, SvgOptions, container,
-    edge_ids, find_structures, industry_models, read_edges, read_free_ids, read_header,
-    read_instances, read_lane_ids, read_model_table, read_strips, read_terrain, retain_laned,
-    retain_live, retain_near_industries, retain_standing_industries, retain_without_sidings,
-    structures, write_png, write_svg,
+    edge_ids, field_slots, find_structures, industry_models, read_edges, read_free_ids,
+    read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
+    retain_laned, retain_live, retain_near_industries, retain_standing_industries,
+    retain_without_sidings, structures, write_png, write_svg,
 };
 
 const USAGE: &str = "\
@@ -49,6 +49,9 @@ Options:
       --no-bands      leave out the coloured height bands (vector terrain)
       --no-terrain    leave out the terrain
       --no-industries leave out the industries
+      --no-fields     leave out the industries' fields: a farm's or forest's plots, an oil well's
+                      pumpjacks and drilling rigs, a mine's or pit's workings, a fishing ground's
+                      rafts, an oil platform's drilling grounds (drawn with the install)
       --no-depots     leave out the depots and maintenance buildings
       --coverage      draw each depot's and maintenance building's coverage: a dashed circle at its
                       catchment radius, round its origin, under the roads (needs the install)
@@ -151,6 +154,7 @@ struct Args {
     mods: Option<PathBuf>,
     terrain: bool,
     industries: bool,
+    fields: bool,
     depots: bool,
     coverage: bool,
     stations: bool,
@@ -177,7 +181,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     let mut keep_dead = false;
     let (mut game, mut mods) = (None, None);
     let (mut terrain, mut industries, mut depots, mut stations) = (true, true, true, true);
-    let mut warehouses = true;
+    let (mut warehouses, mut fields) = (true, true);
     let mut coverage = false;
     let (mut grid, mut no_grid) = (None, false);
     let mut mpp = None;
@@ -226,6 +230,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
             "--png" => png = true,
             "--no-terrain" => terrain = false,
             "--no-industries" => industries = false,
+            "--no-fields" => fields = false,
             "--no-depots" => depots = false,
             "--coverage" => coverage = true,
             "--no-stations" => stations = false,
@@ -317,6 +322,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
     for (name, set, default) in [
         ("terrain", terrain, true),
         ("industries", industries, true),
+        ("fields", fields || !industries, true),
         ("depots", depots, true),
         ("stations", stations, true),
         ("warehouses", warehouses, true),
@@ -325,7 +331,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         ("keep-dead", keep_dead, false),
     ] {
         if set != default
-            && !(png && matches!(name, "industries" | "depots" | "stations" | "warehouses"))
+            && !(png
+                && matches!(
+                    name,
+                    "industries" | "fields" | "depots" | "stations" | "warehouses"
+                ))
         {
             let value = if set { "on" } else { "off" };
             options.settings.push((name, value.to_owned()));
@@ -371,6 +381,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> 
         mods,
         terrain,
         industries,
+        fields,
         depots,
         coverage,
         stations,
@@ -895,10 +906,11 @@ fn read_layers(
         .filter(|i| i.x.abs() <= half_w && i.y.abs() <= half_h)
         .collect();
     let mains = industry_models(&table, &instances);
-    if pieces && let Some(free) = read_free_ids(stream) {
+    let free = read_free_ids(stream);
+    if pieces && let Some(free) = &free {
         // Industries deleted or replaced in the map editor, and older copies
         // of a record.
-        let n = retain_standing_industries(stream, &free, &mains, edges, &mut instances);
+        let n = retain_standing_industries(stream, free, &mains, edges, &mut instances);
         if n > 0 {
             eprintln!(
                 "{n} deleted, replaced or stacked industry markers left out (--keep-dead draws them)"
@@ -921,6 +933,12 @@ fn read_layers(
             .collect();
         layers.industry_faces =
             faces_with_measured(game.map(install::industry_faces).unwrap_or_default());
+        if args.fields
+            && let Some(game) = game
+        {
+            layers.industry_fields = install::industry_fields(game);
+            layers.industry_field_slots = field_slots(stream, free.as_ref(), &mains, &instances);
+        }
     }
     if args.warehouses {
         layers.warehouses = instances

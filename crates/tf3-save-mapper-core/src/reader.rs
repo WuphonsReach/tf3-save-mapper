@@ -86,7 +86,12 @@ impl<'a> Reader<'a> {
     /// Step over a Lua value: a u32 tag and its payload (`docs/lua-values.md`).
     fn skip_value_at(&mut self, depth: u32) -> Result<()> {
         let at = self.pos;
-        match self.u32()? {
+        let tag = self.u32()?;
+        self.skip_payload_at(tag, at, depth)
+    }
+
+    fn skip_payload_at(&mut self, tag: u32, at: usize, depth: u32) -> Result<()> {
+        match tag {
             0 => Ok(()),
             1 => self.skip(1),
             2 => self.skip(8),
@@ -98,4 +103,43 @@ impl<'a> Reader<'a> {
             _ => Err(Error::BadLuaValue { at }),
         }
     }
+
+    pub(crate) fn skip_value(&mut self) -> Result<()> {
+        self.skip_value_at(0)
+    }
+
+    /// A Lua value read as a number or a string; any other value is stepped
+    /// over and gives [`Scalar::Other`].
+    pub(crate) fn scalar(&mut self) -> Result<Scalar> {
+        let at = self.pos;
+        match self.u32()? {
+            2 => Ok(Scalar::Number(f64::from_le_bytes(
+                self.take(8)?.try_into().unwrap(),
+            ))),
+            3 => Ok(Scalar::Text(self.string()?)),
+            tag => self.skip_payload_at(tag, at, 0).map(|()| Scalar::Other),
+        }
+    }
+
+    /// The start of a Lua value that should be a table: its pair count (0 for
+    /// a nil table), with the cursor on the first key. Any other value is
+    /// stepped over and gives `None`.
+    pub(crate) fn table_start(&mut self) -> Result<Option<u32>> {
+        let at = self.pos;
+        match self.u32()? {
+            4 => match self.u8()? {
+                0 => Ok(Some(0)),
+                _ => self.u32().map(Some),
+            },
+            tag => self.skip_payload_at(tag, at, 0).map(|()| None),
+        }
+    }
+}
+
+/// A Lua key or value as [`Reader::scalar`] reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Scalar {
+    Number(f64),
+    Text(String),
+    Other,
 }
