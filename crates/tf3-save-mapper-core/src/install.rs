@@ -866,9 +866,15 @@ pub enum FieldShape {
     /// Ground faces: a plot's rectangle, or a module's faces placed and turned.
     Faces(Vec<Polygon>),
     /// A water module, which has a collider box and no ground face: a disc
-    /// round the slot's place, (a, b) and radius, half the box's longer side.
+    /// round the slot's place, (a, b) and radius ([`WATER_FIELD_RADIUS`]).
     Disc((f64, f64), f64),
 }
+
+/// The radius of a water module's circle. The game marks every fishing raft
+/// and drilling ground with a circle of one size, whatever the module's
+/// collider box (26 m square, or 33 by 26 m for the raft with a platform);
+/// this is half the square's side.
+pub const WATER_FIELD_RADIUS: f64 = 13.0;
 
 /// One row of an industry's `fieldConfig.fields`.
 #[derive(Debug, Clone, PartialEq)]
@@ -973,12 +979,10 @@ fn field_shape(
     let Tree::List(boxes) = table_after(&text, "[\"collider\"]")? else {
         return None;
     };
-    let corners = points(boxes.first()?);
-    if corners.is_empty() {
+    if points(boxes.first()?).is_empty() {
         return None;
     }
-    let (a0, a1, b0, b1) = crate::geometry::bounds(&corners);
-    Some(FieldShape::Disc(row.pos, (a1 - a0).max(b1 - b0) / 2.0))
+    Some(FieldShape::Disc(row.pos, WATER_FIELD_RADIUS))
 }
 
 /// A field type and its turn: `pumpjack_135deg` is `pumpjack` turned 135
@@ -1641,8 +1645,11 @@ local pit_module_02 = require "pit_module_02.lua"
             |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).abs() < 1e-9 && (p.1 - q.1).abs() < 1e-9;
         assert!(near(faces[0][0], (-45.0, 35.0)), "{faces:?}");
         assert!(near(faces[0][2], (-55.0, 15.0)), "{faces:?}");
-        // No ground face: a disc of half the collider's longer side.
-        assert_eq!(shape(2), Some(FieldShape::Disc((0.0, 0.0), 16.5)));
+        // No ground face: a disc of the one water radius, whatever the box.
+        assert_eq!(
+            shape(2),
+            Some(FieldShape::Disc((0.0, 0.0), WATER_FIELD_RADIUS))
+        );
         assert_eq!(shape(3), None);
         // A row with no type is the script's one module.
         let lone = HashMap::from([("ground".to_owned(), "pad_module.lua".to_owned())]);

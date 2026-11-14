@@ -14,7 +14,7 @@ Where an entry says how many saves something is in, the count is from a model co
 - **Mod industries:** an industry built from other industries' pieces, with no main model of its own, has no marker or footprint.
 - **Regenerated industries:** an old fishing ground or oil platform (no road node of its own) is left out only once one of its ids names a road node elsewhere; until then it is drawn (5 in mod.io 6421142).
 - **Deleted industries:** an industry's other pieces (fences, sheds, fields) stay after the editor deletes or regenerates it, and in 6443471 the free-id list reads wrong so every industry is taken as deleted.
-- **Fields:** a fishing raft's kind is picked at random by the game, so its circle can be the wrong size; a mod industry's fields are not read; an industry with no record at its spot has none.
+- **Fields:** a mod industry's fields are not read; an industry with no record at its spot has none.
 - **Small:** the game date is not written into the SVG; the dead-edge filter checks only node ids; a removed industry's dead-end road still joined to the network is drawn.
 - **Map key options**: where the key is drawn, how big it is, and the compass folded into its box (asked for).
 - **Possible layers** the notes make room for: speed limits, electrified track, tram streets, parcel cells, lot tint, terrain changes between two saves, sunrise and sunset on the rose.
@@ -48,9 +48,8 @@ The roundhouse and the modern depot are drawn from their pieces' model boxes (`i
 
 ## Fields
 
-An industry's fields are the slots its construction record's `modules` table lists, shaped and placed from `fieldConfig.fields` in the industry's `.con.lua` (`install::industry_fields`): a plot of the row's size, the module's ground faces, or for a water module (no ground face) a circle of half its collider box's longer side.
+An industry's fields are the slots its construction record's `modules` table lists, shaped and placed from `fieldConfig.fields` in the industry's `.con.lua` (`install::industry_fields`): a plot of the row's size, the module's ground faces, or for a water module (no ground face) a circle of 13 m radius, the one size the game marks every fishing raft and drilling ground with.
 
-- **Fishing rafts' kind** The fishing ground's modules script ignores the slot's `type` and picks the plain raft or the raft with a platform (a 26 or 33 m collider box, turned 0 to 270 degrees for the second) from the construction's seed. The circle follows the slot's listed type, so its radius (13 or 16.5 m) can be the other kind's. Needs: the game's choice, which a Lua random generator seeded the same way would reproduce, or a look at the raft models' instances at each slot.
 - **Mod industries' fields** Only the base game's `industries/*.zip` are read; a mod's industry with field slots gets its footprint from neither, as now. Needs: the same reading from the mods folder, as for mod depots.
 - **An industry with no record** Fields come from the record of the same key within 1 m of the main model. In the maintainer's own game one oil well marker stands at (0, 100), the map's centre, with no record there, and gets none (5 pumpjack and drilling rig models stand round it at its slot places). Whether the game shows an oil well there was not checked: it may be a preview left in the save.
 
