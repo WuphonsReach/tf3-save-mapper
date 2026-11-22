@@ -13,10 +13,10 @@ use tf3_save_mapper_core::svg::{
     unmatched_labels, warehouse_count,
 };
 use tf3_save_mapper_core::{
-    Edge, Family, Header, Install, Instance, Layers, Mods, Structure, SvgOptions, container,
-    edge_ids, field_slots, find_structures, industry_models, read_edges, read_free_ids,
-    read_header, read_instances, read_lane_ids, read_model_table, read_strips, read_terrain,
-    retain_laned, retain_live, retain_near_industries, retain_standing_industries,
+    Edge, Family, Header, Install, Instance, LanePiece, Layers, Mods, Structure, SvgOptions,
+    container, edge_ids, field_slots, find_structures, industry_models, lane_ids, read_edges,
+    read_free_ids, read_header, read_instances, read_lane_pieces, read_model_table, read_strips,
+    read_terrain, retain_laned, retain_live, retain_near_industries, retain_standing_industries,
     retain_without_sidings, structures, write_png, write_svg,
 };
 
@@ -667,13 +667,22 @@ fn run(args: Args) -> Result<(), Failure> {
     let mut edges = read_edges(&stream).map_err(cannot_read)?;
 
     let mut dropped = 0;
+    // The lane table, for the dead-edge filter and the replaced industries.
+    let lanes = if args.keep_dead {
+        None
+    } else {
+        read_lane_pieces(&stream)
+    };
     if !args.keep_dead {
         match read_free_ids(&stream) {
             Some(free) => dropped = retain_live(&mut edges, &free),
             None => eprintln!("free-id list not found: every edge is drawn"),
         }
         let total = edges.len();
-        match read_lane_ids(&stream).map(|lanes| retain_laned(&mut edges, &lanes)) {
+        match lanes
+            .as_deref()
+            .map(|lanes| retain_laned(&mut edges, &lane_ids(lanes)))
+        {
             Some(Ok(n)) => dropped += n,
             Some(Err(n)) => eprintln!(
                 "the lane table read would leave out {n} of {total} edges, too many to be \
@@ -683,7 +692,13 @@ fn run(args: Args) -> Result<(), Failure> {
         }
     }
 
-    let (mut layers, industry_points) = read_layers(&args, &stream, &header, &edges)?;
+    let (mut layers, industry_points) = read_layers(
+        &args,
+        &stream,
+        &header,
+        &edges,
+        lanes.as_deref().unwrap_or_default(),
+    )?;
     dropped += drop_loose(&mut edges, industry_points.as_deref(), args.keep_dead);
     // The industries' own sidings: the footprint stands for them.
     let sidings = retain_without_sidings(&mut edges);
@@ -837,6 +852,7 @@ fn read_layers(
     stream: &[u8],
     header: &Header,
     edges: &[Edge],
+    lanes: &[LanePiece],
 ) -> Result<(Layers, IndustryModels), String> {
     let mut layers = Layers::default();
     if args.terrain {
@@ -910,7 +926,7 @@ fn read_layers(
     if pieces && let Some(free) = &free {
         // Industries deleted or replaced in the map editor, and older copies
         // of a record.
-        let n = retain_standing_industries(stream, free, &mains, edges, &mut instances);
+        let n = retain_standing_industries(stream, free, &mains, edges, lanes, &mut instances);
         if n > 0 {
             eprintln!(
                 "{n} deleted, replaced or stacked industry markers left out (--keep-dead draws them)"

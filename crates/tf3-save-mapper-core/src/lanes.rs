@@ -50,8 +50,18 @@ fn word(data: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(data[at..at + 4].try_into().unwrap())
 }
 
-/// The record at `at`: its two entity ids and its kind, if it reads as one.
-fn record_at(data: &[u8], at: usize) -> Option<(u32, u32, u32)> {
+/// A lane record: its two lane points, each an entity id (`a`, `b`) and the
+/// point's map x, y (`p0`, `p1`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LanePiece {
+    pub a: u32,
+    pub b: u32,
+    pub p0: [f32; 2],
+    pub p1: [f32; 2],
+}
+
+/// The record at `at` and its kind, if it reads as one.
+fn record_at(data: &[u8], at: usize) -> Option<(LanePiece, u32)> {
     if at + RECORD_BYTES > data.len() {
         return None;
     }
@@ -80,16 +90,32 @@ fn record_at(data: &[u8], at: usize) -> Option<(u32, u32, u32)> {
         return None;
     }
     let piece = (x1 - x0).hypot(y1 - y0);
-    (MIN_PIECE..MAX_PIECE)
-        .contains(&piece)
-        .then_some((a, b, kind))
+    (MIN_PIECE..MAX_PIECE).contains(&piece).then_some((
+        LanePiece {
+            a,
+            b,
+            p0: [x0, y0],
+            p1: [x1, y1],
+        },
+        kind,
+    ))
 }
 
 /// The entity ids that have lanes, or `None` if the lane table is not found.
 pub fn read_lane_ids(data: &[u8]) -> Option<HashSet<u32>> {
+    read_lane_pieces(data).map(|pieces| lane_ids(&pieces))
+}
+
+/// The entity ids of `pieces`.
+pub fn lane_ids(pieces: &[LanePiece]) -> HashSet<u32> {
+    pieces.iter().flat_map(|r| [r.a, r.b]).collect()
+}
+
+/// Every record of the lane table, or `None` if the table is not found.
+pub fn read_lane_pieces(data: &[u8]) -> Option<Vec<LanePiece>> {
     let anchors: Vec<usize> = memmem::find_iter(data, &ANCHOR_PREFIX)
         .map(|p| p + ANCHOR_PREFIX.len())
-        .filter(|&at| matches!(record_at(data, at), Some((_, _, 2 | 3))))
+        .filter(|&at| matches!(record_at(data, at), Some((_, 2 | 3))))
         .collect();
     // Every cluster large enough: an id read from a stray one can only keep
     // an edge, while a part of the table left out would drop live ones.
@@ -106,18 +132,17 @@ pub fn read_lane_ids(data: &[u8]) -> Option<HashSet<u32>> {
     if clusters.is_empty() {
         return None;
     }
-    let mut ids = HashSet::new();
+    let mut out = Vec::new();
     for (first, last) in clusters {
         let from = first.saturating_sub(MARGIN);
         let to = (last + RECORD_BYTES + MARGIN).min(data.len());
         for at in from..to {
-            if let Some((a, b, _)) = record_at(data, at) {
-                ids.insert(a);
-                ids.insert(b);
+            if let Some((r, _)) = record_at(data, at) {
+                out.push(r);
             }
         }
     }
-    Some(ids)
+    Some(out)
 }
 
 /// Drop the edges with neither end node in `lanes`: pieces the game no longer
