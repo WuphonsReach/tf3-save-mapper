@@ -664,16 +664,27 @@ fn run(args: Args) -> Result<(), Failure> {
             message,
         });
     }
-    let mut edges = read_edges(&stream).map_err(cannot_read)?;
+    // A map with no roads or tracks yet (fresh terrain in the editor, a blank
+    // catalogue map) is drawn with the rest; with no terrain either, there is
+    // nothing to draw and the save is refused as before.
+    let mut edges = match read_edges(&stream) {
+        Err(tf3_save_mapper_core::Error::NoEdges) if read_terrain(&stream).is_ok() => {
+            eprintln!("no street edges found: the map is drawn without roads or tracks");
+            Vec::new()
+        }
+        read => read.map_err(cannot_read)?,
+    };
 
     let mut dropped = 0;
     // The lane table, for the dead-edge filter and the replaced industries.
-    let lanes = if args.keep_dead {
-        None
-    } else {
+    // With no edges there is nothing to filter, and nothing to note.
+    let filter = !args.keep_dead && !edges.is_empty();
+    let lanes = if filter {
         read_lane_pieces(&stream)
+    } else {
+        None
     };
-    if !args.keep_dead {
+    if filter {
         match read_free_ids(&stream) {
             Some(free) => dropped = retain_live(&mut edges, &free),
             None => eprintln!("free-id list not found: every edge is drawn"),
@@ -827,6 +838,9 @@ fn run(args: Args) -> Result<(), Failure> {
 /// from every group would count as loose, so none is dropped and a note says
 /// so. Returns how many were left out.
 fn drop_loose(edges: &mut Vec<Edge>, models: Option<&[(f64, f64)]>, keep_dead: bool) -> usize {
+    if edges.is_empty() {
+        return 0;
+    }
     match models {
         Some(m) if !m.is_empty() => retain_near_industries(edges, m),
         Some(_) => {

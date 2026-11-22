@@ -65,6 +65,41 @@ fn left_over(dir: &Path, keep: &Path) -> Vec<PathBuf> {
 }
 
 #[test]
+fn a_save_with_no_roads_is_drawn_with_status_0() {
+    // Fresh terrain from the editor: a header, the model table and the
+    // terrain, and no street table.
+    let dir = scratch("no-roads");
+    let mut stream = common::header(604);
+    stream.extend_from_slice(&common::model_table());
+    stream.extend_from_slice(&common::terrain());
+    stream.extend_from_slice(&[0; 4096]);
+    let save = dir.join("terrain.sav");
+    std::fs::write(&save, common::sav(&stream)).unwrap();
+    for (name, extra) in [("map.svg", &[][..]), ("map.png", &["--png"][..])] {
+        let out_path = dir.join(name);
+        let mut args = vec![save.to_str().unwrap(), "-o", out_path.to_str().unwrap()];
+        args.extend(NO_INSTALL);
+        args.extend(extra);
+        let out = tf3map(&args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(0), "{err}");
+        let lines: Vec<&str> = err.lines().collect();
+        // One note, then the summary: no notes about filters with nothing
+        // to filter.
+        assert_eq!(lines.len(), 2, "{err}");
+        assert_eq!(
+            lines[0],
+            "no street edges found: the map is drawn without roads or tracks"
+        );
+        assert!(lines[1].starts_with("0 road edges, 0 track edges"), "{err}");
+        assert!(out_path.exists());
+    }
+    let svg = std::fs::read_to_string(dir.join("map.svg")).unwrap();
+    assert!(svg.contains("data-layer=\"terrain\""));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_file_that_is_not_a_save_is_refused_with_status_3() {
     let dir = scratch("refused");
     let save = dir.join("junk.sav");
@@ -261,8 +296,14 @@ fn a_crop_off_the_map_or_too_small_exits_with_status_2() {
         "{}",
         stderr(&small)
     );
-    // A crop that fits gets past the check; the save has nothing more to read.
-    assert_eq!(run("0,0,100").status.code(), Some(3));
+    // A crop that fits gets past the check; the save has nothing more to
+    // read, no roads and no terrain.
+    let fits = run("0,0,100");
+    assert_eq!(fits.status.code(), Some(3));
+    assert_eq!(
+        stderr(&fits),
+        "tf3map: cannot read the save: no street edges found\n"
+    );
     assert!(!svg.exists());
     std::fs::remove_dir_all(dir).unwrap();
 }
