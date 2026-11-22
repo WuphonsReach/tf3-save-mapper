@@ -24,8 +24,14 @@
 //!   metres off. A record is replaced when its first list holds ids and none
 //!   ends an edge within 500 m, or when any of its ids ends an edge and none of
 //!   that node's ends lies within 500 m (the id now names another road's
-//!   node). Drop one main instance of the key within 1 m, while more are left
-//!   at that spot than live records stand there.
+//!   node). The second test does not apply to a record with a lane point of
+//!   one of its ids within 500 m: its ids are routed at its spot, so they are
+//!   its own, and the far edge is a deleted road's that kept its records after
+//!   its node ids were handed out again (a fishing ground placed in the editor
+//!   took the ids of a road deleted before it, 22 km off). The old set's
+//!   records had no lane point that close in the saves checked. Drop one main
+//!   instance of the key within 1 m, while more are left at that spot than
+//!   live records stand there.
 //!
 //! Fields: the body's `modules` table is keyed by slot number, one entry per
 //! field (a farm's plots, an oil well's pumpjacks, a mine's pits); the slots'
@@ -36,6 +42,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::edges::Edge;
 use crate::instances::Instance;
+use crate::lanes::LanePiece;
 use crate::reader::{Reader, Scalar};
 
 /// Spots closer than this, metres, are the same spot.
@@ -176,7 +183,8 @@ fn near(ax: f64, ay: f64, bx: f64, by: f64) -> bool {
 /// Remove from `instances` the main instances of deleted industries, of older
 /// record copies and of industries a regenerate replaced; `mains` maps a main
 /// model's path to its industry key ([`crate::industry_models`]). `free` is
-/// the free-id list, `edges` the network with the dead edges already left out.
+/// the free-id list, `edges` the network with the dead edges already left out,
+/// `lanes` the lane table (empty when it was not read).
 /// Returns how many were removed. The industry's other pieces (fences, sheds,
 /// a field's models) stay: no link from a piece to its record is known.
 pub fn retain_standing_industries(
@@ -184,6 +192,7 @@ pub fn retain_standing_industries(
     free: &HashSet<u32>,
     mains: &HashMap<String, String>,
     edges: &[Edge],
+    lanes: &[LanePiece],
     instances: &mut Vec<Instance>,
 ) -> usize {
     if free.is_empty() {
@@ -258,9 +267,30 @@ pub fn retain_standing_industries(
                 .any(|&(x, y)| (x - c.x).hypot(y - c.y) <= OWN_ROAD)
         })
     };
+    // The lane points of the records' ids.
+    let rec_ids: HashSet<u32> = recs.iter().flat_map(|c| c.ids.iter().copied()).collect();
+    let mut points: HashMap<u32, Vec<(f64, f64)>> = HashMap::new();
+    for r in lanes {
+        for (id, p) in [(r.a, r.p0), (r.b, r.p1)] {
+            if rec_ids.contains(&id) {
+                points
+                    .entry(id)
+                    .or_default()
+                    .push((f64::from(p[0]), f64::from(p[1])));
+            }
+        }
+    }
+    let routed_here = |c: &Construction| {
+        c.ids.iter().any(|i| {
+            points.get(i).is_some_and(|ps| {
+                ps.iter()
+                    .any(|&(x, y)| (x - c.x).hypot(y - c.y) <= OWN_ROAD)
+            })
+        })
+    };
     let replaced = |c: &Construction| {
         (!c.first.is_empty() && !c.first.iter().any(|i| home(c, i) == Some(true)))
-            || c.ids.iter().any(|i| home(c, i) == Some(false))
+            || (c.ids.iter().any(|i| home(c, i) == Some(false)) && !routed_here(c))
     };
     let standing: Vec<&Construction> = live
         .iter()
@@ -451,14 +481,14 @@ mod tests {
         ];
         // Two deleted, one copy over two instances; the lone live record
         // keeps the instance the deleted record at its spot did not take.
-        let removed = retain_standing_industries(&data, &free, &mains, &[], &mut instances);
+        let removed = retain_standing_industries(&data, &free, &mains, &[], &[], &mut instances);
         assert_eq!(removed, 3);
         let spots: Vec<_> = instances.iter().map(|i| (i.x, i.y)).collect();
         assert_eq!(spots, [(500.0, 0.0), (900.0, 0.0)]);
         // Without a free-id list nothing is dropped.
         let mut all = vec![main_at(10.0, 10.0)];
         assert_eq!(
-            retain_standing_industries(&data, &HashSet::new(), &mains, &[], &mut all),
+            retain_standing_industries(&data, &HashSet::new(), &mains, &[], &[], &mut all),
             0
         );
     }
@@ -508,15 +538,71 @@ mod tests {
             main_at(1000.0, 0.0),
             main_of("oil_platform", -2000.0, 0.0),
         ];
-        let removed = retain_standing_industries(&data, &free, &mains, &edges, &mut instances);
+        let removed = retain_standing_industries(&data, &free, &mains, &edges, &[], &mut instances);
         assert_eq!(removed, 2);
         let spots: Vec<_> = instances.iter().map(|i| (i.x, i.y)).collect();
         assert_eq!(spots, [(0.0, 0.0), (3000.0, 0.0)]);
         // With no network to test against, nothing is taken as replaced.
         let mut all = vec![main_at(1000.0, 0.0)];
         assert_eq!(
-            retain_standing_industries(&data, &free, &mains, &[], &mut all),
+            retain_standing_industries(&data, &free, &mains, &[], &[], &mut all),
             0
+        );
+    }
+
+    #[test]
+    fn a_record_routed_at_its_spot_is_not_replaced_by_a_stale_road() {
+        let mut data = vec![0u8; 8];
+        // Placed by hand: its ids 50 and 51 were a deleted road's nodes, and
+        // that road's records still stand 22 km off; id 50 has lanes here.
+        record_lists(
+            &mut data,
+            "fishing_grounds/fishing_grounds",
+            0.0,
+            0.0,
+            &[],
+            &[50, 51],
+        );
+        // Old set: id 30 is now a node of a country road 5 km away, with
+        // lanes there and none at the old spot.
+        record_lists(
+            &mut data,
+            "fishing_grounds/fishing_grounds",
+            -2000.0,
+            0.0,
+            &[],
+            &[30, 31],
+        );
+        let free: HashSet<u32> = [99].into();
+        let edges = [
+            road(50, 51, (-3000.0, 22000.0), (-2900.0, 22000.0)),
+            road(30, 6, (3000.0, 4000.0), (3100.0, 4000.0)),
+        ];
+        let lane = |a: u32, p0: [f32; 2], p1: [f32; 2]| LanePiece { a, b: a, p0, p1 };
+        let lanes = [
+            lane(50, [-14.0, 1.0], [-14.0, 6.0]),
+            lane(51, [-3000.0, 22000.0], [-2995.0, 22000.0]),
+            lane(30, [3000.0, 4000.0], [3005.0, 4000.0]),
+        ];
+        let mains = HashMap::from([(
+            "industries/fishing_grounds/fishing_grounds_sm.mdl".to_owned(),
+            "fishing_grounds".to_owned(),
+        )]);
+        let all = vec![
+            main_of("fishing_grounds", 0.0, 0.0),
+            main_of("fishing_grounds", -2000.0, 0.0),
+        ];
+        let mut instances = all.clone();
+        let removed =
+            retain_standing_industries(&data, &free, &mains, &edges, &lanes, &mut instances);
+        assert_eq!(removed, 1);
+        let spots: Vec<_> = instances.iter().map(|i| (i.x, i.y)).collect();
+        assert_eq!(spots, [(0.0, 0.0)]);
+        // Without the lane table both look replaced, as before.
+        let mut instances = all;
+        assert_eq!(
+            retain_standing_industries(&data, &free, &mains, &edges, &[], &mut instances),
+            2
         );
     }
 

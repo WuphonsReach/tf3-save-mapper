@@ -34,7 +34,7 @@ pub use header::{Header, read_header};
 pub use industry_records::{field_slots, retain_standing_industries};
 pub use install::{Install, Mods};
 pub use instances::{Instance, ModelTable, industry_models, read_instances, read_model_table};
-pub use lanes::{read_lane_ids, retain_laned};
+pub use lanes::{LanePiece, lane_ids, read_lane_ids, read_lane_pieces, retain_laned};
 pub use loose::retain_near_industries;
 pub use sidings::retain_without_sidings;
 pub use strips::{edge_ids, read_strips};
